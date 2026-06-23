@@ -3,7 +3,7 @@ import TicketTable from '@/components/TicketTable'
 import { TicketStatus } from '@/lib/types'
 import { MessageSquare, CheckCircle, Clock, AlertCircle } from 'lucide-react'
 
-export const revalidate = 30
+export const dynamic = 'force-dynamic'
 
 async function getStats(tickets: Awaited<ReturnType<typeof getAllTickets>>) {
   const counts: Record<TicketStatus, number> = { open: 0, in_progress: 0, resolved: 0, closed: 0 }
