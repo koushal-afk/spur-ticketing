@@ -1,9 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk'
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-
 export async function summarizeConversation(messages: string[]): Promise<string> {
   if (messages.length === 0) return ''
+  if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY === 'your_anthropic_api_key_here') {
+    return messages[messages.length - 1]?.slice(0, 200) ?? ''
+  }
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   const text = messages.join('\n')
   const response = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
