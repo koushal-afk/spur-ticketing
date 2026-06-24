@@ -3,6 +3,16 @@ import { JWT } from 'google-auth-library'
 import { Ticket, TicketStatus, TicketPriority } from './types'
 
 const SHEET_ID = process.env.GOOGLE_SHEET_ID!
+
+function toIST(isoString: string | null | undefined): string {
+  if (!isoString) return ''
+  const date = new Date(isoString)
+  return date.toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: true,
+  })
+}
 const SHEET_NAME = 'Tickets'
 const HEADERS = [
   'ticket_id', 'conversation_id', 'contact_name', 'contact_phone',
@@ -42,7 +52,7 @@ function ticketToRow(t: Ticket): string[] {
     t.ticketId, t.conversationId, t.contactName, t.contactPhone,
     t.firstMessage, t.lastMessage, t.conversationSummary,
     t.assignedTo, t.status, t.priority,
-    t.createdAt, t.lastActiveAt, t.updatedAt,
+    toIST(t.createdAt), toIST(t.lastActiveAt), toIST(t.updatedAt),
   ]
 }
 
@@ -168,8 +178,8 @@ export async function updateTicketLiveData(
         { range: `${SHEET_NAME}!E${sheetRow}`, values: [[firstMessage]] },
         { range: `${SHEET_NAME}!F${sheetRow}`, values: [[lastMessage]] },
         { range: `${SHEET_NAME}!G${sheetRow}`, values: [[conversationSummary]] },
-        { range: `${SHEET_NAME}!L${sheetRow}`, values: [[lastActiveAt]] },
-        { range: `${SHEET_NAME}!M${sheetRow}`, values: [[now]] },
+        { range: `${SHEET_NAME}!L${sheetRow}`, values: [[toIST(lastActiveAt)]] },
+        { range: `${SHEET_NAME}!M${sheetRow}`, values: [[toIST(now)]] },
       ],
     },
   })
