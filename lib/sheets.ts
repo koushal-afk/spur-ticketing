@@ -11,7 +11,7 @@ const HEADERS = [
   'created_at', 'last_active_at', 'updated_at',
 ]
 
-function getAuth() {
+function getAuth(): any {
   return new JWT({
     email: process.env.GOOGLE_CLIENT_EMAIL,
     key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
@@ -140,6 +140,7 @@ export async function updateTicket(ticketId: string, updates: Partial<Ticket>) {
 
 export async function updateTicketLiveData(
   conversationId: string,
+  firstMessage: string,
   lastMessage: string,
   conversationSummary: string,
   lastActiveAt: string,
@@ -158,12 +159,13 @@ export async function updateTicketLiveData(
   const sheetRow = rowIndex + 2
   const now = new Date().toISOString()
 
-  // Update columns F (lastMessage), G (summary), L (lastActiveAt), M (updatedAt)
+  // Update columns E (firstMessage), F (lastMessage), G (summary), L (lastActiveAt), M (updatedAt)
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId: SHEET_ID,
     requestBody: {
       valueInputOption: 'RAW',
       data: [
+        { range: `${SHEET_NAME}!E${sheetRow}`, values: [[firstMessage]] },
         { range: `${SHEET_NAME}!F${sheetRow}`, values: [[lastMessage]] },
         { range: `${SHEET_NAME}!G${sheetRow}`, values: [[conversationSummary]] },
         { range: `${SHEET_NAME}!L${sheetRow}`, values: [[lastActiveAt]] },

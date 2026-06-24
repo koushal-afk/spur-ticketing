@@ -59,15 +59,17 @@ export async function POST(req: NextRequest) {
     }
     await appendTickets(newTickets)
 
-    // Update existing tickets with fresh last message + summary
+    // Update existing tickets with correct first/last message + summary
     for (const conv of updatedConversations) {
       const messages = messagesMap[String(conv.conversationId)] ?? []
       const messageTexts = messages.map(m => m.content?.text?.body ?? '').filter(Boolean)
       if (messageTexts.length === 0) continue
       const summary = await summarizeConversation(messageTexts)
+      // messages are newest-first, so [0] = last, [length-1] = first
       await updateTicketLiveData(
         String(conv.conversationId),
-        messageTexts[0],
+        messageTexts[messageTexts.length - 1], // firstMessage
+        messageTexts[0],                        // lastMessage
         summary,
         conv.lastMessageAt,
       )
