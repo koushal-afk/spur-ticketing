@@ -1,0 +1,23 @@
+name: Poll Spur WhatsApp
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call poll endpoint
+        run: |
+          response=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            -H "x-cron-secret: ${{ secrets.POLL_SECRET }}" \
+            https://spur-ticketing.vercel.app/api/cron)
+          body=$(cat /tmp/response.json)
+          echo "Status: $response"
+          echo "Response: $body"
+          if [ "$response" != "200" ]; then
+            echo "Poll failed with status $response"
+            exit 1
+          fi
