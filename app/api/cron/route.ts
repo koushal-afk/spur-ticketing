@@ -34,16 +34,39 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Step 1: fetch conversations
-    const convResult = await spurRequest('conversation_search', { channelType: 'whatsapp', limit: 50 })
-    const conversations = convResult.conversations ?? []
+    // Step 1: fetch all conversations active in the last 24 hours (paginate until we go past that window)
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    const conversations: Record<string, unknown>[] = []
+    let cursor: number | undefined = undefined
+
+    while (true) {
+      const params: Record<string, unknown> = { channelType: 'whatsapp', limit: 50 }
+      if (cursor) params.cursor = cursor
+      const page = await spurRequest('conversation_search', params)
+      const batch: Record<string, unknown>[] = page.conversations ?? []
+      if (batch.length === 0) break
+
+      // Keep conversations with recent activity; stop paginating once all are older than cutoff
+      const recent = batch.filter(c => {
+        const t = c.lastMessageAt as string | null
+        return t ? new Date(t) >= cutoff : false
+      })
+      conversations.push(...recent)
+
+      // If the last conversation on this page is older than cutoff, no need to go further
+      const last = batch[batch.length - 1]
+      const lastTime = last?.lastMessageAt as string | null
+      if (!lastTime || new Date(lastTime) < cutoff) break
+      if (!page.nextCursor) break
+      cursor = page.nextCursor
+    }
 
     // Step 2: fetch messages for each conversation in parallel (batches of 10)
     const messagesMap: Record<string, unknown[]> = {}
     const batchSize = 10
     for (let i = 0; i < conversations.length; i += batchSize) {
       const batch = conversations.slice(i, i + batchSize)
-      await Promise.all(batch.map(async (conv: { conversationId: number }) => {
+      await Promise.all(batch.map(async (conv: Record<string, unknown>) => {
         try {
           const msgResult = await spurRequest('conversation_messages', {
             conversationId: conv.conversationId,
@@ -60,43 +83,41 @@ export async function GET(req: NextRequest) {
     await ensureHeaders()
     const existing = await getExistingConversationIds()
 
-    const newConversations = conversations.filter(
-      (c: { conversationId: number }) => !existing.has(String(c.conversationId))
-    )
-    const updatedConversations = conversations.filter(
-      (c: { conversationId: number }) => existing.has(String(c.conversationId))
-    )
+    const newConversations = conversations.filter(c => !existing.has(String(c.conversationId)))
+    const updatedConversations = conversations.filter(c => existing.has(String(c.conversationId)))
 
     const newTickets: Ticket[] = []
     for (const conv of newConversations) {
+      const s = conv as Record<string, string | null>
       const messages = (messagesMap[String(conv.conversationId)] ?? []) as { content?: { text?: { body?: string } } }[]
       const messageTexts = messages.map(m => m.content?.text?.body ?? '').filter(Boolean)
       const summary = messageTexts.length > 0
         ? await summarizeConversation(messageTexts)
-        : conv.lastMessagePreview
+        : (s.lastMessagePreview ?? '')
 
-      const firstMsg = messageTexts[messageTexts.length - 1] ?? conv.lastMessagePreview
-      const lastMsg = messageTexts[0] ?? conv.lastMessagePreview
+      const firstMsg = messageTexts[messageTexts.length - 1] ?? s.lastMessagePreview ?? ''
+      const lastMsg = messageTexts[0] ?? s.lastMessagePreview ?? ''
 
       newTickets.push({
         ticketId: `TKT-${randomUUID().slice(0, 8).toUpperCase()}`,
         conversationId: String(conv.conversationId),
-        contactName: conv.contactName ?? 'Unknown',
-        contactPhone: conv.contactPhone ?? '',
+        contactName: s.contactName ?? 'Unknown',
+        contactPhone: s.contactPhone ?? '',
         firstMessage: firstMsg,
         lastMessage: lastMsg,
         conversationSummary: summary,
         assignedTo: 'Unassigned',
         status: 'open',
         priority: 'medium',
-        createdAt: conv.createdAt,
-        lastActiveAt: conv.lastMessageAt,
+        createdAt: s.createdAt ?? new Date().toISOString(),
+        lastActiveAt: s.lastMessageAt ?? '',
         updatedAt: new Date().toISOString(),
       })
     }
     await appendTickets(newTickets)
 
     for (const conv of updatedConversations) {
+      const s = conv as Record<string, string | null>
       const messages = (messagesMap[String(conv.conversationId)] ?? []) as { content?: { text?: { body?: string } } }[]
       const messageTexts = messages.map(m => m.content?.text?.body ?? '').filter(Boolean)
       if (messageTexts.length === 0) continue
@@ -106,7 +127,7 @@ export async function GET(req: NextRequest) {
         messageTexts[messageTexts.length - 1],
         messageTexts[0],
         summary,
-        conv.lastMessageAt,
+        s.lastMessageAt ?? '',
       )
     }
 
