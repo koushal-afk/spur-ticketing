@@ -1,17 +1,13 @@
 import { google } from 'googleapis'
 import { JWT } from 'google-auth-library'
-import { Ticket, TicketStatus, TicketPriority } from './types'
+import { Ticket, TicketStatus, TicketPriority, AppUser, UserRole } from './types'
 
 const SHEET_ID = process.env.GOOGLE_SHEET_ID!
 
-function toIST(isoString: string | null | undefined): string {
+function toEpoch(isoString: string | null | undefined): number | '' {
   if (!isoString) return ''
-  const date = new Date(isoString)
-  return date.toLocaleString('en-IN', {
-    timeZone: 'Asia/Kolkata',
-    day: '2-digit', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', hour12: true,
-  })
+  const ms = new Date(isoString).getTime()
+  return isNaN(ms) ? '' : Math.floor(ms / 1000)
 }
 const SHEET_NAME = 'Tickets'
 const HEADERS = [
@@ -47,12 +43,12 @@ function rowToTicket(row: string[]): Ticket {
   }
 }
 
-function ticketToRow(t: Ticket): string[] {
+function ticketToRow(t: Ticket): (string | number)[] {
   return [
     t.ticketId, t.conversationId, t.contactName, t.contactPhone,
     t.firstMessage, t.lastMessage, t.conversationSummary,
     t.assignedTo, t.status, t.priority,
-    toIST(t.createdAt), toIST(t.lastActiveAt), toIST(t.updatedAt),
+    toEpoch(t.createdAt), toEpoch(t.lastActiveAt), toEpoch(t.updatedAt),
   ]
 }
 
@@ -178,9 +174,77 @@ export async function updateTicketLiveData(
         { range: `${SHEET_NAME}!E${sheetRow}`, values: [[firstMessage]] },
         { range: `${SHEET_NAME}!F${sheetRow}`, values: [[lastMessage]] },
         { range: `${SHEET_NAME}!G${sheetRow}`, values: [[conversationSummary]] },
-        { range: `${SHEET_NAME}!L${sheetRow}`, values: [[toIST(lastActiveAt)]] },
-        { range: `${SHEET_NAME}!M${sheetRow}`, values: [[toIST(now)]] },
+        { range: `${SHEET_NAME}!L${sheetRow}`, values: [[toEpoch(lastActiveAt)]] },
+        { range: `${SHEET_NAME}!M${sheetRow}`, values: [[toEpoch(now)]] },
       ],
     },
   })
+}
+
+// ── Users ────────────────────────────────────────────────────────────────────
+
+const USERS_SHEET = 'Users'
+const USER_HEADERS = ['id', 'name', 'email', 'password_hash', 'role']
+
+export async function ensureUsersSheet() {
+  const auth = getAuth()
+  const sheets = google.sheets({ version: 'v4', auth })
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID })
+  const names = meta.data.sheets?.map(s => s.properties?.title) ?? []
+  if (!names.includes(USERS_SHEET)) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: SHEET_ID,
+      requestBody: { requests: [{ addSheet: { properties: { title: USERS_SHEET } } }] },
+    })
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `${USERS_SHEET}!A1`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [USER_HEADERS] },
+    })
+  }
+}
+
+export async function getUserByEmail(email: string): Promise<(AppUser & { passwordHash: string }) | null> {
+  const auth = getAuth()
+  const sheets = google.sheets({ version: 'v4', auth })
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${USERS_SHEET}!A2:E`,
+  })
+  const row = (res.data.values ?? []).find(r => r[2]?.toLowerCase() === email.toLowerCase())
+  if (!row) return null
+  return {
+    id: row[0] ?? '',
+    name: row[1] ?? '',
+    email: row[2] ?? '',
+    passwordHash: row[3] ?? '',
+    role: (row[4] as UserRole) ?? 'employee',
+  }
+}
+
+export async function getAllUsers(): Promise<AppUser[]> {
+  const auth = getAuth()
+  const sheets = google.sheets({ version: 'v4', auth })
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${USERS_SHEET}!A2:E`,
+  })
+  return (res.data.values ?? []).filter(r => r[0]).map(r => ({
+    id: r[0], name: r[1], email: r[2], role: r[4] as UserRole,
+  }))
+}
+
+export async function createUser(name: string, email: string, passwordHash: string, role: UserRole) {
+  const auth = getAuth()
+  const sheets = google.sheets({ version: 'v4', auth })
+  const id = `USR-${Date.now()}`
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: `${USERS_SHEET}!A1`,
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: { values: [[id, name, email, passwordHash, role]] },
+  })
+  return id
 }
