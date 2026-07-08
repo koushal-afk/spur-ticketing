@@ -1,3 +1,12 @@
+export type UserRole = 'admin' | 'executive' | 'employee'
+
+export interface AppUser {
+  id: string
+  name: string
+  email: string
+  role: UserRole
+}
+
 export type TicketStatus = 'open' | 'in_progress' | 'resolved' | 'closed'
 export type TicketPriority = 'low' | 'medium' | 'high'
 

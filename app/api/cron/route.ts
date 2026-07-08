@@ -28,7 +28,7 @@ async function spurRequest(tool: string, params: Record<string, unknown>) {
 }
 
 export async function GET(req: NextRequest) {
-  const secret = req.headers.get('x-cron-secret')
+  const secret = req.headers.get('x-cron-secret') ?? req.nextUrl.searchParams.get('secret')
   if (secret !== process.env.POLL_SECRET) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

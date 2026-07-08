@@ -1,14 +1,15 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
-import { Ticket, TicketStatus, TicketPriority } from '@/lib/types'
+import { Ticket, TicketStatus, TicketPriority, UserRole } from '@/lib/types'
 import { TEAM_MEMBERS, UNASSIGNED } from '@/lib/team'
 import { StatusBadge, PriorityBadge } from './StatusBadge'
 import { MessageSquare, Phone, Clock, User, ChevronUp, ChevronDown } from 'lucide-react'
 
 type SortKey = 'lastActiveAt' | 'createdAt' | 'contactName' | 'status' | 'priority'
 
-export default function TicketTable({ initialTickets }: { initialTickets: Ticket[] }) {
+export default function TicketTable({ initialTickets, userRole = 'admin' }: { initialTickets: Ticket[], userRole?: UserRole }) {
+  const canEdit = userRole === 'admin' || userRole === 'executive'
   const [tickets, setTickets] = useState(initialTickets)
   const [filterStatus, setFilterStatus] = useState<TicketStatus | 'all'>('all')
   const [filterAssignee, setFilterAssignee] = useState<string>('all')
@@ -166,32 +167,39 @@ export default function TicketTable({ initialTickets }: { initialTickets: Ticket
                   )}
                 </td>
                 <td className="px-4 py-3">
-                  <select
-                    value={ticket.status}
-                    onChange={e => handleQuickStatus(ticket.ticketId, e.target.value as TicketStatus)}
-                    className="text-xs border-0 bg-transparent cursor-pointer focus:outline-none"
-                  >
-                    <option value="open">Open</option>
-                    <option value="in_progress">In Progress</option>
-                    <option value="resolved">Resolved</option>
-                    <option value="closed">Closed</option>
-                  </select>
-                  <StatusBadge status={ticket.status} />
+                  {canEdit ? (
+                    <select
+                      value={ticket.status}
+                      onChange={e => handleQuickStatus(ticket.ticketId, e.target.value as TicketStatus)}
+                      className="text-xs border border-gray-200 rounded px-1 py-0.5 bg-white focus:outline-none"
+                    >
+                      <option value="open">Open</option>
+                      <option value="in_progress">In Progress</option>
+                      <option value="resolved">Resolved</option>
+                      <option value="closed">Closed</option>
+                    </select>
+                  ) : (
+                    <StatusBadge status={ticket.status} />
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   <PriorityBadge priority={ticket.priority} />
                 </td>
                 <td className="px-4 py-3">
-                  <select
-                    value={ticket.assignedTo}
-                    onChange={e => handleQuickAssign(ticket.ticketId, e.target.value)}
-                    className="text-sm border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                  >
-                    <option value="Unassigned">Unassigned</option>
-                    {TEAM_MEMBERS.map(m => (
-                      <option key={m.email} value={m.name}>{m.name}</option>
-                    ))}
-                  </select>
+                  {canEdit ? (
+                    <select
+                      value={ticket.assignedTo}
+                      onChange={e => handleQuickAssign(ticket.ticketId, e.target.value)}
+                      className="text-sm border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    >
+                      <option value="Unassigned">Unassigned</option>
+                      {TEAM_MEMBERS.map(m => (
+                        <option key={m.email} value={m.name}>{m.name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="text-sm text-gray-700">{ticket.assignedTo}</span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-xs text-gray-500">
                   <div className="flex items-center gap-1">
