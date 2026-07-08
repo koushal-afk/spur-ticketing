@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { appendTickets, ensureHeaders, getExistingConversationIds, updateTicketLiveData } from '@/lib/sheets'
+import { appendTickets, ensureHeaders, getExistingConversationLastActive } from '@/lib/sheets'
 import { summarizeConversation } from '@/lib/summarize'
 import { Ticket } from '@/lib/types'
 import { randomUUID } from 'crypto'
@@ -34,8 +34,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Step 1: fetch all conversations active in the last 24 hours (paginate until we go past that window)
-    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    // Step 1: fetch all conversations active in the last 7 days (paginate until we go past that window)
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
     const conversations: Record<string, unknown>[] = []
     let cursor: number | undefined = undefined
 
@@ -79,15 +79,22 @@ export async function GET(req: NextRequest) {
       }))
     }
 
-    // Step 3: process into sheets (same logic as /api/poll)
+    // Step 3: determine which conversations need a new ticket
     await ensureHeaders()
-    const existing = await getExistingConversationIds()
+    const existingLastActive = await getExistingConversationLastActive()
 
-    const newConversations = conversations.filter(c => !existing.has(String(c.conversationId)))
-    const updatedConversations = conversations.filter(c => existing.has(String(c.conversationId)))
+    // Create a new ticket if:
+    //   a) conversation has never been seen before, OR
+    //   b) it has been seen but has NEW activity since the last recorded lastActiveAt
+    const toTicket = conversations.filter(c => {
+      const convId = String(c.conversationId)
+      const spurEpoch = Math.floor(new Date(c.lastMessageAt as string).getTime() / 1000)
+      const sheetEpoch = existingLastActive.get(convId) ?? 0
+      return spurEpoch > sheetEpoch  // new activity
+    })
 
     const newTickets: Ticket[] = []
-    for (const conv of newConversations) {
+    for (const conv of toTicket) {
       const s = conv as Record<string, string | null>
       const messages = (messagesMap[String(conv.conversationId)] ?? []) as { content?: { text?: { body?: string } } }[]
       const messageTexts = messages.map(m => m.content?.text?.body ?? '').filter(Boolean)
@@ -116,22 +123,7 @@ export async function GET(req: NextRequest) {
     }
     await appendTickets(newTickets)
 
-    for (const conv of updatedConversations) {
-      const s = conv as Record<string, string | null>
-      const messages = (messagesMap[String(conv.conversationId)] ?? []) as { content?: { text?: { body?: string } } }[]
-      const messageTexts = messages.map(m => m.content?.text?.body ?? '').filter(Boolean)
-      if (messageTexts.length === 0) continue
-      const summary = await summarizeConversation(messageTexts)
-      await updateTicketLiveData(
-        String(conv.conversationId),
-        messageTexts[messageTexts.length - 1],
-        messageTexts[0],
-        summary,
-        s.lastMessageAt ?? '',
-      )
-    }
-
-    return NextResponse.json({ created: newTickets.length, updated: updatedConversations.length })
+    return NextResponse.json({ created: newTickets.length, skipped: conversations.length - newTickets.length })
   } catch (e) {
     console.error(e)
     return NextResponse.json({ error: String(e) }, { status: 500 })

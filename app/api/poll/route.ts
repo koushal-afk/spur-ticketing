@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { appendTickets, ensureHeaders, getExistingConversationIds, updateTicketLiveData } from '@/lib/sheets'
+import { appendTickets, ensureHeaders, getExistingConversationLastActive, updateTicketLiveData } from '@/lib/sheets'
 import { summarizeConversation } from '@/lib/summarize'
 import { Ticket, SpurConversation, SpurMessage } from '@/lib/types'
 import { randomUUID } from 'crypto'
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     }
 
     await ensureHeaders()
-    const existing = await getExistingConversationIds()
+    const existing = await getExistingConversationLastActive()
 
     const newConversations = conversations.filter(
       c => !existing.has(String(c.conversationId))

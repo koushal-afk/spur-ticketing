@@ -215,21 +215,21 @@ export default function TicketDetail({ ticket: initial, userRole }: { ticket: Ti
                 <Calendar size={14} className="mt-0.5 shrink-0 text-gray-400" />
                 <div>
                   <div className="text-xs text-gray-400">Created</div>
-                  {ticket.createdAt ? new Date(ticket.createdAt).toLocaleString('en-IN') : '—'}
+                  {ticket.createdAt ? new Date(Number(ticket.createdAt) * 1000).toLocaleString('en-IN') : '—'}
                 </div>
               </div>
               <div className="flex items-start gap-2 text-gray-600">
                 <Clock size={14} className="mt-0.5 shrink-0 text-gray-400" />
                 <div>
                   <div className="text-xs text-gray-400">Last Active</div>
-                  {ticket.lastActiveAt ? new Date(ticket.lastActiveAt).toLocaleString('en-IN') : '—'}
+                  {ticket.lastActiveAt ? new Date(Number(ticket.lastActiveAt) * 1000).toLocaleString('en-IN') : '—'}
                 </div>
               </div>
               <div className="flex items-start gap-2 text-gray-600">
                 <User size={14} className="mt-0.5 shrink-0 text-gray-400" />
                 <div>
                   <div className="text-xs text-gray-400">Last Updated</div>
-                  {ticket.updatedAt ? new Date(ticket.updatedAt).toLocaleString('en-IN') : '—'}
+                  {ticket.updatedAt ? new Date(Number(ticket.updatedAt) * 1000).toLocaleString('en-IN') : '—'}
                 </div>
               </div>
             </div>
@@ -246,7 +246,7 @@ function MessageBubble({ text, label, time, isFirst }: { text: string; label: st
       <div className={`max-w-sm rounded-2xl px-4 py-3 text-sm ${isFirst ? 'bg-gray-100 text-gray-800 rounded-tl-sm' : 'bg-green-500 text-white rounded-tr-sm'}`}>
         <p>{text}</p>
         <p className={`text-xs mt-1 ${isFirst ? 'text-gray-400' : 'text-green-100'}`}>
-          {time ? new Date(time).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : ''}
+          {time ? new Date(Number(time) * 1000).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : ''}
         </p>
       </div>
     </div>

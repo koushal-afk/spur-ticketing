@@ -171,7 +171,7 @@ export default function TicketTable({ initialTickets, userRole = 'admin' }: { in
                     <select
                       value={ticket.status}
                       onChange={e => handleQuickStatus(ticket.ticketId, e.target.value as TicketStatus)}
-                      className="text-xs border border-gray-200 rounded px-1 py-0.5 bg-white focus:outline-none"
+                      className="text-xs text-gray-800 border border-gray-200 rounded px-1 py-0.5 bg-white focus:outline-none"
                     >
                       <option value="open">Open</option>
                       <option value="in_progress">In Progress</option>
@@ -190,7 +190,7 @@ export default function TicketTable({ initialTickets, userRole = 'admin' }: { in
                     <select
                       value={ticket.assignedTo}
                       onChange={e => handleQuickAssign(ticket.ticketId, e.target.value)}
-                      className="text-sm border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      className="text-sm text-gray-800 border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                     >
                       <option value="Unassigned">Unassigned</option>
                       {TEAM_MEMBERS.map(m => (
@@ -204,7 +204,7 @@ export default function TicketTable({ initialTickets, userRole = 'admin' }: { in
                 <td className="px-4 py-3 text-xs text-gray-500">
                   <div className="flex items-center gap-1">
                     <Clock size={12} />
-                    {ticket.lastActiveAt ? new Date(ticket.lastActiveAt).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                    {ticket.lastActiveAt ? new Date(Number(ticket.lastActiveAt) * 1000).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                   </div>
                 </td>
                 <td className="px-4 py-3">

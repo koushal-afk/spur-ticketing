@@ -91,15 +91,24 @@ export async function getAllTickets(): Promise<Ticket[]> {
   return res.data.values.filter(r => r[0]).map(rowToTicket)
 }
 
-export async function getExistingConversationIds(): Promise<Set<string>> {
+// Returns a map of conversationId → latest lastActiveAt epoch stored in the sheet.
+// If a conversation appears multiple times (re-opened tickets), the highest epoch wins.
+export async function getExistingConversationLastActive(): Promise<Map<string, number>> {
   const auth = getAuth()
   const sheets = google.sheets({ version: 'v4', auth })
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: `${SHEET_NAME}!B2:B`,
+    range: `${SHEET_NAME}!B2:L`,  // B=conversationId, L=lastActiveAt
   })
-  if (!res.data.values) return new Set()
-  return new Set(res.data.values.flat())
+  const map = new Map<string, number>()
+  for (const row of res.data.values ?? []) {
+    const convId = row[0]
+    const epoch = Number(row[10])  // column L is index 10 within B:L range
+    if (!convId) continue
+    const prev = map.get(convId) ?? 0
+    if (!isNaN(epoch) && epoch > prev) map.set(convId, epoch)
+  }
+  return map
 }
 
 export async function appendTickets(tickets: Ticket[]) {
