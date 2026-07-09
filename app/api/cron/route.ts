@@ -54,12 +54,15 @@ export async function processConversations(
   await ensureHeaders()
   const existingLastActive = await getExistingConversationLastActive()
 
-  // Only process conversations with genuinely new activity
+  // Create a new ticket only when there's been a meaningful gap (≥1 hour) since the last
+  // recorded activity. This prevents every individual message from spawning a new row
+  // while still capturing genuine re-engagement after a period of silence.
+  const MIN_GAP_SECONDS = 60 * 60 // 1 hour
   const needsTicket = conversations.filter(c => {
     const convId = String(c.conversationId)
     const spurEpoch = Math.floor(new Date(c.lastMessageAt as string).getTime() / 1000)
     const sheetEpoch = existingLastActive.get(convId) ?? 0
-    return spurEpoch > sheetEpoch
+    return spurEpoch - sheetEpoch >= MIN_GAP_SECONDS
   })
 
   const skipped = conversations.length - needsTicket.length
