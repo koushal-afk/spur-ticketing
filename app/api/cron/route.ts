@@ -150,10 +150,10 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const since = new Date(Date.now() - 30 * 60 * 1000) // 30 minutes ago
+    const since = new Date(Date.now() - 4 * 60 * 60 * 1000) // 4 hours ago
     const conversations = await fetchConversationsSince(since)
     const result = await processConversations(conversations)
-    return NextResponse.json({ ...result, window_minutes: 30, total_in_window: conversations.length })
+    return NextResponse.json({ ...result, window_hours: 4, total_in_window: conversations.length })
   } catch (e) {
     console.error('[cron] fatal:', e)
     return NextResponse.json({ error: String(e) }, { status: 500 })
