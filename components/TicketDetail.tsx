@@ -135,7 +135,7 @@ export default function TicketDetail({ ticket: initial, userRole }: { ticket: Ti
                   onChange={e => setComment(e.target.value)}
                   rows={4}
                   placeholder="Add instructions or comments for the assigned employee..."
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                 />
                 <div className="flex items-center gap-2">
                   <button
@@ -169,7 +169,7 @@ export default function TicketDetail({ ticket: initial, userRole }: { ticket: Ti
                   value={ticket.status}
                   onChange={e => update({ status: e.target.value as TicketStatus })}
                   disabled={saving}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="open">Open</option>
                   <option value="in_progress">In Progress</option>
@@ -193,7 +193,7 @@ export default function TicketDetail({ ticket: initial, userRole }: { ticket: Ti
                   value={ticket.assignedTo}
                   onChange={e => update({ assignedTo: e.target.value })}
                   disabled={saving}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="Unassigned">Unassigned</option>
                   {TEAM_MEMBERS.map(m => (
