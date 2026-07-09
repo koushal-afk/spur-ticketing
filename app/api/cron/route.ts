@@ -54,15 +54,21 @@ export async function processConversations(
   await ensureHeaders()
   const existingLastActive = await getExistingConversationLastActive()
 
-  // Create a new ticket only when there's been a meaningful gap (≥1 hour) since the last
-  // recorded activity. This prevents every individual message from spawning a new row
-  // while still capturing genuine re-engagement after a period of silence.
-  const MIN_GAP_SECONDS = 60 * 60 // 1 hour
+  // Create a new ticket when the customer's latest message falls on a different IST
+  // calendar date than the most recent ticket in the sheet. This means one ticket per
+  // conversation per day — multiple messages in the same day stay on one ticket, but
+  // returning the next day (or later) always opens a fresh ticket.
+  const IST_OFFSET = 5.5 * 60 * 60 // UTC+5:30 in seconds
+  const toISTDate = (epochSeconds: number) => {
+    const istMs = (epochSeconds + IST_OFFSET) * 1000
+    return new Date(istMs).toISOString().slice(0, 10) // "YYYY-MM-DD"
+  }
   const needsTicket = conversations.filter(c => {
     const convId = String(c.conversationId)
     const spurEpoch = Math.floor(new Date(c.lastMessageAt as string).getTime() / 1000)
     const sheetEpoch = existingLastActive.get(convId) ?? 0
-    return spurEpoch - sheetEpoch >= MIN_GAP_SECONDS
+    if (sheetEpoch === 0) return true // brand new conversation
+    return toISTDate(spurEpoch) !== toISTDate(sheetEpoch)
   })
 
   const skipped = conversations.length - needsTicket.length
