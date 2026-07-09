@@ -69,13 +69,13 @@ export default function TicketTable({ initialTickets, userRole = 'admin' }: { in
   return (
     <div className="space-y-4">
       {/* Filters */}
-      <div className="flex flex-wrap gap-3 items-center">
+      <div className="flex flex-wrap gap-2 sm:gap-3 items-center">
         <input
           type="text"
           placeholder="Search name, phone, ticket ID..."
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <select
           value={filterStatus}
@@ -112,8 +112,70 @@ export default function TicketTable({ initialTickets, userRole = 'admin' }: { in
         <span className="text-sm text-gray-500 ml-auto">{filtered.length} tickets</span>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto rounded-xl border border-gray-200 shadow-sm">
+      {/* Mobile cards (hidden on sm+) */}
+      <div className="sm:hidden space-y-3">
+        {filtered.length === 0 && (
+          <div className="py-10 text-center text-gray-400">No tickets found</div>
+        )}
+        {filtered.map(ticket => (
+          <div key={ticket.ticketId} className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-semibold text-xs shrink-0">
+                  {ticket.contactName.slice(0, 2).toUpperCase()}
+                </div>
+                <div>
+                  <div className="font-medium text-gray-900 text-sm">{ticket.contactName}</div>
+                  <div className="text-gray-400 text-xs font-mono">{ticket.ticketId}</div>
+                </div>
+              </div>
+              <Link
+                href={`/tickets/${ticket.ticketId}`}
+                className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-medium shrink-0 border border-blue-200 rounded-lg px-2 py-1"
+              >
+                <MessageSquare size={12} /> View
+              </Link>
+            </div>
+            <div className="text-gray-600 text-sm truncate">{ticket.lastMessage}</div>
+            <div className="flex flex-wrap gap-2 items-center">
+              {canEdit ? (
+                <select
+                  value={ticket.status}
+                  onChange={e => handleQuickStatus(ticket.ticketId, e.target.value as TicketStatus)}
+                  className="text-xs text-gray-800 border border-gray-200 rounded px-1.5 py-1 bg-white focus:outline-none"
+                >
+                  <option value="open">Open</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="resolved">Resolved</option>
+                  <option value="closed">Closed</option>
+                </select>
+              ) : (
+                <StatusBadge status={ticket.status} />
+              )}
+              <PriorityBadge priority={ticket.priority} />
+              <div className="flex items-center gap-1 text-xs text-gray-400 ml-auto">
+                <Clock size={11} />
+                {ticket.lastActiveAt ? new Date(Number(ticket.lastActiveAt) * 1000).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+              </div>
+            </div>
+            {canEdit && (
+              <select
+                value={ticket.assignedTo}
+                onChange={e => handleQuickAssign(ticket.ticketId, e.target.value)}
+                className="w-full text-sm text-gray-800 border border-gray-200 rounded-lg px-2 py-1 focus:outline-none bg-white"
+              >
+                <option value="Unassigned">Unassigned</option>
+                {TEAM_MEMBERS.map(m => (
+                  <option key={m.email} value={m.name}>{m.name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop table (hidden on mobile) */}
+      <div className="hidden sm:block overflow-x-auto rounded-xl border border-gray-200 shadow-sm">
         <table className="min-w-full divide-y divide-gray-200 text-sm">
           <thead className="bg-gray-50">
             <tr>

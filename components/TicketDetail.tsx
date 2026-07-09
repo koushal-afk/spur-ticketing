@@ -50,13 +50,13 @@ export default function TicketDetail({ ticket: initial, userRole }: { ticket: Ti
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="max-w-5xl mx-auto flex items-center gap-4">
-          <Link href="/" className="flex items-center gap-2 text-gray-500 hover:text-gray-700 text-sm">
-            <ArrowLeft size={16} /> Back to Tickets
+      <header className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4">
+        <div className="max-w-5xl mx-auto flex flex-wrap items-center gap-2 sm:gap-4">
+          <Link href="/" className="flex items-center gap-1.5 text-gray-500 hover:text-gray-700 text-sm">
+            <ArrowLeft size={16} /> Back
           </Link>
-          <div className="h-4 w-px bg-gray-200" />
-          <span className="font-mono text-sm text-gray-500">{ticket.ticketId}</span>
+          <div className="h-4 w-px bg-gray-200 hidden sm:block" />
+          <span className="font-mono text-xs sm:text-sm text-gray-500">{ticket.ticketId}</span>
           <StatusBadge status={ticket.status} />
           <PriorityBadge priority={ticket.priority} />
           {canClose && ticket.status !== 'closed' && (
@@ -65,13 +65,13 @@ export default function TicketDetail({ ticket: initial, userRole }: { ticket: Ti
               disabled={saving}
               className="ml-auto flex items-center gap-1.5 bg-gray-800 hover:bg-gray-900 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
             >
-              <CheckCircle size={14} /> Close Ticket
+              <CheckCircle size={14} /> Close
             </button>
           )}
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-6 py-6 grid grid-cols-3 gap-6">
+      <main className="max-w-5xl mx-auto px-4 py-4 sm:px-6 sm:py-6 grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
         {/* Left: conversation info */}
         <div className="col-span-2 space-y-4">
           {/* Contact card */}
@@ -88,17 +88,6 @@ export default function TicketDetail({ ticket: initial, userRole }: { ticket: Ti
                     {ticket.contactPhone.replace(/^91/, '+91 ')}
                   </a>
                 </div>
-              </div>
-              <div className="ml-auto">
-                <a
-                  href={`https://wa.me/${ticket.contactPhone}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-                >
-                  <MessageSquare size={14} />
-                  Open in WhatsApp
-                </a>
               </div>
             </div>
           </div>
