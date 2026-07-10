@@ -47,7 +47,8 @@ async function fetchMessageTexts(conversationId: string): Promise<string[]> {
 
 // Shared processing logic used by both cron and backfill
 export async function processConversations(
-  conversations: Record<string, unknown>[]
+  conversations: Record<string, unknown>[],
+  maxNew?: number
 ): Promise<{ created: number; skipped: number }> {
   if (conversations.length === 0) return { created: 0, skipped: 0 }
 
@@ -71,7 +72,11 @@ export async function processConversations(
     return toISTDate(spurEpoch) !== toISTDate(sheetEpoch)
   })
 
-  const skipped = conversations.length - needsTicket.length
+  const totalNeedingTicket = needsTicket.length
+  // Apply cap after filtering so we never skip a conversation just because it's ranked lower
+  // in recency — only the expensive work (message fetch + summarize) is capped per run.
+  if (maxNew !== undefined) needsTicket.splice(maxNew)
+  const skipped = conversations.length - totalNeedingTicket
   if (needsTicket.length === 0) return { created: 0, skipped }
 
   // Fetch messages only for conversations that need a ticket (parallel, batches of 10)
@@ -165,15 +170,11 @@ export async function GET(req: NextRequest) {
   try {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000) // 24h window
     const allConversations = await fetchConversationsSince(since)
-
-    // Cap how many we process this run to avoid timeout; rest caught by next runs
-    const capped = allConversations.slice(0, MAX_PER_RUN)
-    const result = await processConversations(capped)
+    const result = await processConversations(allConversations, MAX_PER_RUN)
     return NextResponse.json({
       ...result,
       window_hours: 24,
       total_in_window: allConversations.length,
-      processed_this_run: capped.length,
     })
   } catch (e) {
     console.error('[cron] fatal:', e)
