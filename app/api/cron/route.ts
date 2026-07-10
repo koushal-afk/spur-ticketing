@@ -151,7 +151,11 @@ async function fetchConversationsSince(since: Date): Promise<Record<string, unkn
   return conversations
 }
 
-// Regular cron: 30-minute lookback (6× the 5-min schedule = safe buffer, fast execution)
+// Regular cron: 24h lookback so no conversation is ever missed, capped at 15 new tickets
+// per run to stay well within Vercel's 60s limit. Remaining new tickets are picked up by
+// subsequent 5-minute runs.
+const MAX_PER_RUN = 15
+
 export async function GET(req: NextRequest) {
   const secret = req.headers.get('x-cron-secret') ?? req.nextUrl.searchParams.get('secret')
   if (secret !== process.env.POLL_SECRET) {
@@ -159,10 +163,18 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const since = new Date(Date.now() - 4 * 60 * 60 * 1000) // 4 hours ago
-    const conversations = await fetchConversationsSince(since)
-    const result = await processConversations(conversations)
-    return NextResponse.json({ ...result, window_hours: 4, total_in_window: conversations.length })
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000) // 24h window
+    const allConversations = await fetchConversationsSince(since)
+
+    // Cap how many we process this run to avoid timeout; rest caught by next runs
+    const capped = allConversations.slice(0, MAX_PER_RUN)
+    const result = await processConversations(capped)
+    return NextResponse.json({
+      ...result,
+      window_hours: 24,
+      total_in_window: allConversations.length,
+      processed_this_run: capped.length,
+    })
   } catch (e) {
     console.error('[cron] fatal:', e)
     return NextResponse.json({ error: String(e) }, { status: 500 })
