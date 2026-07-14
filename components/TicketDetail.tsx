@@ -122,12 +122,12 @@ export default function TicketDetail({ ticket: initial, userRole }: { ticket: Ti
             </p>
           </div>
 
-          {/* Employee Notes — editable by employees */}
-          {userRole === 'employee' && (
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h3 className="font-semibold text-gray-900 flex items-center gap-2 mb-3">
-                <FileText size={16} /> My Notes
-              </h3>
+          {/* Employee Notes — editable by employees, read-only for others */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <h3 className="font-semibold text-gray-900 flex items-center gap-2 mb-3">
+              <FileText size={16} /> {userRole === 'employee' ? 'My Notes' : 'Employee Notes'}
+            </h3>
+            {userRole === 'employee' ? (
               <div className="space-y-2">
                 <textarea
                   value={empComment}
@@ -148,18 +148,12 @@ export default function TicketDetail({ ticket: initial, userRole }: { ticket: Ti
                   {empSaved && <span className="text-green-600 text-sm">✓ Saved</span>}
                 </div>
               </div>
-            </div>
-          )}
-
-          {/* Show employee notes to admins/executives (read-only) */}
-          {userRole !== 'employee' && ticket.employeeComment && (
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h3 className="font-semibold text-gray-900 flex items-center gap-2 mb-3">
-                <FileText size={16} /> Employee Notes
-              </h3>
-              <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap">{ticket.employeeComment}</p>
-            </div>
-          )}
+            ) : (
+              <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap">
+                {ticket.employeeComment || <span className="text-gray-400 italic">No notes from employee yet.</span>}
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Right: controls */}
