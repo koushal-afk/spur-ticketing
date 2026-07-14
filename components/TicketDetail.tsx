@@ -9,9 +9,9 @@ import Link from 'next/link'
 export default function TicketDetail({ ticket: initial, userRole }: { ticket: Ticket; userRole: UserRole }) {
   const [ticket, setTicket] = useState(initial)
   const [saving, setSaving] = useState(false)
-  const [comment, setComment] = useState(initial.conversationSummary ?? '')
-  const [commentSaving, setCommentSaving] = useState(false)
-  const [commentSaved, setCommentSaved] = useState(false)
+  const [empComment, setEmpComment] = useState(initial.employeeComment ?? '')
+  const [empSaving, setEmpSaving] = useState(false)
+  const [empSaved, setEmpSaved] = useState(false)
 
   const canEdit = userRole === 'admin' || userRole === 'executive'
   const canClose = userRole === 'admin' || userRole === 'executive' || userRole === 'employee'
@@ -30,20 +30,20 @@ export default function TicketDetail({ ticket: initial, userRole }: { ticket: Ti
     setSaving(false)
   }
 
-  const saveComment = async () => {
-    setCommentSaving(true)
+  const saveEmpComment = async () => {
+    setEmpSaving(true)
     const res = await fetch(`/api/tickets/${ticket.ticketId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conversationSummary: comment }),
+      body: JSON.stringify({ employeeComment: empComment }),
     })
     if (res.ok) {
       const data = await res.json()
       setTicket(data.ticket)
-      setCommentSaved(true)
-      setTimeout(() => setCommentSaved(false), 2000)
+      setEmpSaved(true)
+      setTimeout(() => setEmpSaved(false), 2000)
     }
-    setCommentSaving(false)
+    setEmpSaving(false)
   }
 
   const closeTicket = () => update({ status: 'closed' })
@@ -112,38 +112,54 @@ export default function TicketDetail({ ticket: initial, userRole }: { ticket: Ti
             </div>
           </div>
 
-          {/* Executive Comments */}
+          {/* Executive Comments — read-only for all */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h3 className="font-semibold text-gray-900 flex items-center gap-2 mb-3">
               <FileText size={16} /> Executive Comments
             </h3>
-            {canEdit ? (
+            <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap">
+              {ticket.conversationSummary || <span className="text-gray-400 italic">No comments yet.</span>}
+            </p>
+          </div>
+
+          {/* Employee Notes — editable by employees */}
+          {userRole === 'employee' && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h3 className="font-semibold text-gray-900 flex items-center gap-2 mb-3">
+                <FileText size={16} /> My Notes
+              </h3>
               <div className="space-y-2">
                 <textarea
-                  value={comment}
-                  onChange={e => setComment(e.target.value)}
+                  value={empComment}
+                  onChange={e => setEmpComment(e.target.value)}
                   rows={4}
-                  placeholder="Add instructions or comments for the assigned employee..."
+                  placeholder="Add your notes or updates on this ticket..."
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                 />
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={saveComment}
-                    disabled={commentSaving}
+                    onClick={saveEmpComment}
+                    disabled={empSaving}
                     className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
                   >
                     <Save size={13} />
-                    {commentSaving ? 'Saving…' : 'Save Comment'}
+                    {empSaving ? 'Saving…' : 'Save Note'}
                   </button>
-                  {commentSaved && <span className="text-green-600 text-sm">✓ Saved</span>}
+                  {empSaved && <span className="text-green-600 text-sm">✓ Saved</span>}
                 </div>
               </div>
-            ) : (
-              <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap">
-                {ticket.conversationSummary || <span className="text-gray-400 italic">No comments yet.</span>}
-              </p>
-            )}
-          </div>
+            </div>
+          )}
+
+          {/* Show employee notes to admins/executives (read-only) */}
+          {userRole !== 'employee' && ticket.employeeComment && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h3 className="font-semibold text-gray-900 flex items-center gap-2 mb-3">
+                <FileText size={16} /> Employee Notes
+              </h3>
+              <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap">{ticket.employeeComment}</p>
+            </div>
+          )}
         </div>
 
         {/* Right: controls */}

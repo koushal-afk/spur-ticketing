@@ -24,6 +24,7 @@ export interface Ticket {
   firstMessage: string
   lastMessage: string
   conversationSummary: string
+  employeeComment: string
   assignedTo: string
   status: TicketStatus
   priority: TicketPriority

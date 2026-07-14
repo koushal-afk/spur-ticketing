@@ -116,6 +116,7 @@ export async function processConversations(
       firstMessage: texts[texts.length - 1] ?? s.lastMessagePreview ?? '',
       lastMessage: texts[0] ?? s.lastMessagePreview ?? '',
       conversationSummary: summaries[id] ?? '',
+      employeeComment: '',
       assignedTo: 'Unassigned',
       status: 'open',
       priority: 'medium',
