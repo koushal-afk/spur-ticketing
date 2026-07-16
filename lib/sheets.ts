@@ -14,7 +14,7 @@ const HEADERS = [
   'ticket_id', 'conversation_id', 'contact_name', 'contact_phone',
   'first_message', 'last_message', 'conversation_summary',
   'assigned_to', 'status', 'priority',
-  'created_at', 'last_active_at', 'updated_at',
+  'created_at', 'last_active_at', 'updated_at', 'employee_comment',
 ]
 
 function getAuth(): any {
@@ -40,6 +40,7 @@ function rowToTicket(row: string[]): Ticket {
     createdAt: row[10] ?? '',
     lastActiveAt: row[11] ?? '',
     updatedAt: row[12] ?? '',
+    employeeComment: row[13] ?? '',
   }
 }
 
@@ -49,6 +50,7 @@ function ticketToRow(t: Ticket): (string | number)[] {
     t.firstMessage, t.lastMessage, t.conversationSummary,
     t.assignedTo, t.status, t.priority,
     toEpoch(t.createdAt), toEpoch(t.lastActiveAt), toEpoch(t.updatedAt),
+    t.employeeComment ?? '',
   ]
 }
 
@@ -68,7 +70,7 @@ export async function ensureHeaders() {
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: `${SHEET_NAME}!A1:M1`,
+    range: `${SHEET_NAME}!A1:N1`,
   })
   if (!res.data.values || res.data.values[0]?.[0] !== 'ticket_id') {
     await sheets.spreadsheets.values.update({
@@ -85,7 +87,7 @@ export async function getAllTickets(): Promise<Ticket[]> {
   const sheets = google.sheets({ version: 'v4', auth })
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: `${SHEET_NAME}!A2:M`,
+    range: `${SHEET_NAME}!A2:N`,
   })
   if (!res.data.values) return []
   return res.data.values.filter(r => r[0]).map(rowToTicket)
@@ -130,7 +132,7 @@ export async function updateTicket(ticketId: string, updates: Partial<Ticket>) {
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: `${SHEET_NAME}!A2:M`,
+    range: `${SHEET_NAME}!A2:N`,
   })
   const rows = res.data.values ?? []
   const rowIndex = rows.findIndex(r => r[0] === ticketId)
@@ -146,7 +148,7 @@ export async function updateTicket(ticketId: string, updates: Partial<Ticket>) {
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: SHEET_ID,
-    range: `${SHEET_NAME}!A${sheetRow}:M${sheetRow}`,
+    range: `${SHEET_NAME}!A${sheetRow}:N${sheetRow}`,
     valueInputOption: 'RAW',
     requestBody: { values: [ticketToRow(updated)] },
   })
@@ -165,7 +167,7 @@ export async function updateTicketLiveData(
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: `${SHEET_NAME}!A2:M`,
+    range: `${SHEET_NAME}!A2:N`,
   })
   const rows = res.data.values ?? []
   const rowIndex = rows.findIndex(r => r[1] === conversationId)

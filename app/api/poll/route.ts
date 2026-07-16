@@ -49,6 +49,7 @@ export async function POST(req: NextRequest) {
         firstMessage: firstMsg,
         lastMessage: lastMsg,
         conversationSummary: summary,
+        employeeComment: '',
         assignedTo: 'Unassigned',
         status: 'open',
         priority: 'medium',

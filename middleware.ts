@@ -5,5 +5,5 @@ export default withAuth({
 })
 
 export const config = {
-  matcher: ['/((?!login|api/auth|api/poll|api/cron|_next|favicon.ico).*)'],
+  matcher: ['/((?!login|api/auth|api/poll|api/cron|api/backfill|_next|favicon.ico).*)'],
 }
