@@ -5,6 +5,7 @@ import { Ticket, TicketStatus, TicketPriority, UserRole } from '@/lib/types'
 import { TEAM_MEMBERS, UNASSIGNED } from '@/lib/team'
 import { StatusBadge, PriorityBadge } from './StatusBadge'
 import { MessageSquare, Phone, Clock, User, ChevronUp, ChevronDown } from 'lucide-react'
+import { formatIST, parseSheetDate } from '@/lib/dateUtils'
 
 type SortKey = 'lastActiveAt' | 'createdAt' | 'contactName' | 'status' | 'priority'
 
@@ -155,7 +156,7 @@ export default function TicketTable({ initialTickets, userRole = 'admin' }: { in
               <PriorityBadge priority={ticket.priority} />
               <div className="flex items-center gap-1 text-xs text-gray-400 ml-auto">
                 <Clock size={11} />
-                {ticket.lastActiveAt ? new Date(Number(ticket.lastActiveAt) * 1000).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                {formatIST(ticket.lastActiveAt, { dateStyle: 'short', timeStyle: 'short' })}
               </div>
             </div>
             {canEdit && (
@@ -266,7 +267,7 @@ export default function TicketTable({ initialTickets, userRole = 'admin' }: { in
                 <td className="px-4 py-3 text-xs text-gray-500">
                   <div className="flex items-center gap-1">
                     <Clock size={12} />
-                    {ticket.lastActiveAt ? new Date(Number(ticket.lastActiveAt) * 1000).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                    {formatIST(ticket.lastActiveAt, { dateStyle: 'short', timeStyle: 'short' })}
                   </div>
                 </td>
                 <td className="px-4 py-3">

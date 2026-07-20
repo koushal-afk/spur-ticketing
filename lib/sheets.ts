@@ -4,10 +4,27 @@ import { Ticket, TicketStatus, TicketPriority, AppUser, UserRole } from './types
 
 const SHEET_ID = process.env.GOOGLE_SHEET_ID!
 
-function toEpoch(isoString: string | null | undefined): number | '' {
+// Store timestamps as IST strings ("DD/MM/YYYY, HH:MM:SS") — readable directly
+// in Google Sheets and unambiguous for the app (always treated as IST).
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000
+
+function toIST(isoString: string | null | undefined): string {
   if (!isoString) return ''
   const ms = new Date(isoString).getTime()
-  return isNaN(ms) ? '' : Math.floor(ms / 1000)
+  if (isNaN(ms)) return ''
+  return new Date(ms + IST_OFFSET_MS).toISOString().replace('T', ' ').slice(0, 19) + ' IST'
+}
+
+// Parse an IST sheet value back to a JS Date (returns epoch ms in UTC).
+// Handles both the new "DD/MM/YYYY HH:MM:SS IST" format and legacy epoch-second numbers.
+function fromIST(value: string | undefined): number {
+  if (!value) return 0
+  const asNum = Number(value)
+  if (!isNaN(asNum) && asNum > 1_000_000_000) return asNum * 1000  // legacy epoch seconds
+  const clean = value.replace(' IST', '').trim()
+  const ms = new Date(clean).getTime()
+  // The string is already shifted to IST, so subtract the offset to get UTC ms
+  return isNaN(ms) ? 0 : ms - IST_OFFSET_MS
 }
 const SHEET_NAME = 'Tickets'
 const HEADERS = [
@@ -44,12 +61,12 @@ function rowToTicket(row: string[]): Ticket {
   }
 }
 
-function ticketToRow(t: Ticket): (string | number)[] {
+function ticketToRow(t: Ticket): string[] {
   return [
     t.ticketId, t.conversationId, t.contactName, t.contactPhone,
     t.firstMessage, t.lastMessage, t.conversationSummary,
     t.assignedTo, t.status, t.priority,
-    toEpoch(t.createdAt), toEpoch(t.lastActiveAt), toEpoch(t.updatedAt),
+    toIST(t.createdAt), toIST(t.lastActiveAt), toIST(t.updatedAt),
     t.employeeComment ?? '',
   ]
 }
@@ -109,10 +126,10 @@ export async function getExistingConversations(): Promise<Map<string, { epoch: n
     const convId = row[0]
     if (!convId) continue
     const status = (row[7] as string) ?? 'open'
-    const epoch = Number(row[10])
+    const ms = fromIST(row[10])  // UTC milliseconds
     const prev = map.get(convId)
-    if (!prev || (!isNaN(epoch) && epoch > prev.epoch)) {
-      map.set(convId, { epoch: isNaN(epoch) ? 0 : epoch, status })
+    if (!prev || ms > prev.epoch) {
+      map.set(convId, { epoch: ms, status })
     }
   }
   return map
@@ -202,8 +219,8 @@ export async function updateTicketLiveData(
         { range: `${SHEET_NAME}!E${sheetRow}`, values: [[firstMessage]] },
         { range: `${SHEET_NAME}!F${sheetRow}`, values: [[lastMessage]] },
         { range: `${SHEET_NAME}!G${sheetRow}`, values: [[conversationSummary]] },
-        { range: `${SHEET_NAME}!L${sheetRow}`, values: [[toEpoch(lastActiveAt)]] },
-        { range: `${SHEET_NAME}!M${sheetRow}`, values: [[toEpoch(now)]] },
+        { range: `${SHEET_NAME}!L${sheetRow}`, values: [[toIST(lastActiveAt)]] },
+        { range: `${SHEET_NAME}!M${sheetRow}`, values: [[toIST(now)]] },
       ],
     },
   })

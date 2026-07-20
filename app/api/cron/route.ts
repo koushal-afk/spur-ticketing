@@ -160,27 +160,19 @@ export async function processConversations(conversations: Record<string, unknown
   for (const conv of conversations) {
     const id = String(conv.conversationId)
     const info = existing.get(id)
-    const spurEpoch = conv.lastMessageAt
-      ? Math.floor(new Date(conv.lastMessageAt as string).getTime() / 1000)
+    // info.epoch is UTC ms; compare to Spur's lastMessageAt also in UTC ms
+    const spurMs = conv.lastMessageAt
+      ? new Date(conv.lastMessageAt as string).getTime()
       : 0
 
     if (!info) {
-      // Brand-new conversation — always create ticket
       needsNewTicket.push(conv)
     } else if (info.status === 'closed' || info.status === 'resolved') {
-      // Customer messaged again after close — create a fresh ticket
-      if (spurEpoch > info.epoch) {
-        needsNewTicket.push(conv)
-      } else {
-        skipped++
-      }
+      if (spurMs > info.epoch) needsNewTicket.push(conv)
+      else skipped++
     } else {
-      // open or in_progress — update if there's genuinely a newer message
-      if (spurEpoch > info.epoch) {
-        needsUpdate.push(conv)
-      } else {
-        skipped++
-      }
+      if (spurMs > info.epoch) needsUpdate.push(conv)
+      else skipped++
     }
   }
 
