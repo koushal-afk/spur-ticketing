@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { appendTickets, ensureHeaders, getExistingConversations, updateTicketLiveData } from '@/lib/sheets'
+import { appendTickets, ensureHeaders, getExistingConversations, updateTicketLiveData, getCronWatermark, setCronWatermark } from '@/lib/sheets'
 import { summarizeConversation } from '@/lib/summarize'
 import { Ticket } from '@/lib/types'
 import { randomUUID } from 'crypto'
@@ -51,20 +51,25 @@ async function fetchMessageTexts(conversationId: string): Promise<string[]> {
   }
 }
 
-// Spur's conversation_search sorts by conversationId (creation order), not lastMessageAt.
-// Old conversations that get new messages never appear in the unfiltered list.
-// Strategy: fetch two passes and merge —
-//   Pass 1 (recent): conversations CREATED in the last 24h (stop when createdAt < since)
-//   Pass 2 (unread):  all conversations with unread messages regardless of age
-// This catches brand-new chats (pass 1) and old conversations with new customer messages (pass 2).
-async function fetchRecentConversations(): Promise<Record<string, unknown>[]> {
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000)
+// Fetch conversations to process this run using two passes:
+//
+// Pass 1 — new conversations: paginate (newest-created first) and stop when
+//           createdAt falls below the watermark. Since the cron runs every 5 min,
+//           this is typically just a handful of pages.
+//
+// Pass 2 — unread conversations: fetch ALL conversations with unread messages
+//           regardless of age. This catches old conversations where a customer
+//           sent a new message (e.g. re-opening an old chat after a closed ticket).
+//
+// The watermark (last successful run timestamp) is stored in the Config sheet
+// so if a run is skipped, the next run automatically catches up.
+async function fetchConversationsSince(watermark: Date): Promise<Record<string, unknown>[]> {
   const seen = new Set<string>()
   const conversations: Record<string, unknown>[] = []
 
-  // ── Pass 1: recently CREATED conversations (stop on createdAt cutoff) ──
+  // ── Pass 1: conversations CREATED since watermark ──────────────────────────
   let cursor: number | undefined
-  while (true) {
+  outer1: while (true) {
     const params: Record<string, unknown> = { channelType: 'whatsapp', limit: 50 }
     if (cursor !== undefined) params.cursor = cursor
     let page: Record<string, unknown>
@@ -74,19 +79,17 @@ async function fetchRecentConversations(): Promise<Record<string, unknown>[]> {
     const batch = (page.conversations as Record<string, unknown>[]) ?? []
     if (batch.length === 0) break
 
-    let hitCutoff = false
     for (const c of batch) {
       const created = c.createdAt as string | null
-      // Stop once conversations are older than 24h (list is newest-created first)
-      if (!created || new Date(created) < since) { hitCutoff = true; break }
+      if (!created || new Date(created) <= watermark) break outer1  // hit cutoff
       const id = String(c.conversationId)
       if (!seen.has(id)) { seen.add(id); conversations.push(c) }
     }
-    if (hitCutoff || !page.nextCursor) break
+    if (!page.nextCursor) break
     cursor = page.nextCursor as number
   }
 
-  // ── Pass 2: unread conversations (any age — catches old convos with new customer messages) ──
+  // ── Pass 2: any unread conversations (catches old chats with new messages) ──
   cursor = undefined
   while (true) {
     const params: Record<string, unknown> = { channelType: 'whatsapp', limit: 50, unreadOnly: true }
@@ -251,11 +254,26 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const conversations = await fetchRecentConversations()
+    const runStart = new Date()
+
+    // Read watermark — tells us where the last successful run left off
+    const watermark = await getCronWatermark()
+
+    const conversations = await fetchConversationsSince(watermark)
     const result = await processConversations(conversations)
-    return NextResponse.json({ ...result, total_fetched: conversations.length })
+
+    // Only advance the watermark after successful processing
+    await setCronWatermark(runStart)
+
+    return NextResponse.json({
+      ...result,
+      total_fetched: conversations.length,
+      watermark_was: watermark.toISOString(),
+      watermark_now: runStart.toISOString(),
+    })
   } catch (e) {
     console.error('[cron] fatal:', e)
+    // Watermark is NOT updated on failure — next run will retry from same point
     return NextResponse.json({ error: String(e) }, { status: 500 })
   }
 }

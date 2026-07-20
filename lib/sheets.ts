@@ -263,6 +263,70 @@ export async function getAllUsers(): Promise<AppUser[]> {
   }))
 }
 
+// ── Cron watermark ────────────────────────────────────────────────────────────
+
+const CONFIG_SHEET = 'Config'
+const WATERMARK_KEY = 'last_cron_run'
+
+export async function getCronWatermark(): Promise<Date> {
+  try {
+    const auth = getAuth()
+    const sheets = google.sheets({ version: 'v4', auth })
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${CONFIG_SHEET}!A:B`,
+    })
+    const row = (res.data.values ?? []).find(r => r[0] === WATERMARK_KEY)
+    if (row?.[1]) return new Date(row[1])
+  } catch {}
+  // First ever run — default to 6 minutes ago (slightly more than cron interval)
+  return new Date(Date.now() - 6 * 60 * 1000)
+}
+
+export async function setCronWatermark(ts: Date): Promise<void> {
+  try {
+    const auth = getAuth()
+    const sheets = google.sheets({ version: 'v4', auth })
+
+    // Ensure Config sheet exists
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID })
+    const names = meta.data.sheets?.map(s => s.properties?.title) ?? []
+    if (!names.includes(CONFIG_SHEET)) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SHEET_ID,
+        requestBody: { requests: [{ addSheet: { properties: { title: CONFIG_SHEET } } }] },
+      })
+    }
+
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${CONFIG_SHEET}!A:B`,
+    })
+    const rows = res.data.values ?? []
+    const rowIdx = rows.findIndex(r => r[0] === WATERMARK_KEY)
+    if (rowIdx >= 0) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: `${CONFIG_SHEET}!B${rowIdx + 1}`,
+        valueInputOption: 'RAW',
+        requestBody: { values: [[ts.toISOString()]] },
+      })
+    } else {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: SHEET_ID,
+        range: `${CONFIG_SHEET}!A1`,
+        valueInputOption: 'RAW',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: { values: [[WATERMARK_KEY, ts.toISOString()]] },
+      })
+    }
+  } catch (e) {
+    console.error('[sheets] setCronWatermark failed:', e)
+  }
+}
+
+// ── Users ─────────────────────────────────────────────────────────────────────
+
 export async function createUser(name: string, email: string, passwordHash: string, role: UserRole) {
   const auth = getAuth()
   const sheets = google.sheets({ version: 'v4', auth })
