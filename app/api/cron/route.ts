@@ -41,7 +41,9 @@ async function fetchMessageTexts(conversationId: string): Promise<string[]> {
       limit: 10,
     })
     return (result.messages ?? [])
-      .filter((m: { recordType?: string }) => m.recordType === 'message')
+      .filter((m: { recordType?: string; sentViaSpur?: boolean }) =>
+        m.recordType === 'message' && !m.sentViaSpur  // inbound customer messages only
+      )
       .map((m: { content?: { text?: { body?: string } } }) => m.content?.text?.body ?? '')
       .filter(Boolean)
   } catch {
@@ -49,37 +51,58 @@ async function fetchMessageTexts(conversationId: string): Promise<string[]> {
   }
 }
 
-// Fetch all conversations active in the last 24 hours, paginating until older than cutoff.
+// Spur's conversation_search sorts by conversationId (creation order), not lastMessageAt.
+// Old conversations that get new messages never appear in the unfiltered list.
+// Strategy: fetch two passes and merge —
+//   Pass 1 (recent): conversations CREATED in the last 24h (stop when createdAt < since)
+//   Pass 2 (unread):  all conversations with unread messages regardless of age
+// This catches brand-new chats (pass 1) and old conversations with new customer messages (pass 2).
 async function fetchRecentConversations(): Promise<Record<string, unknown>[]> {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000)
-  const conversations: Record<string, unknown>[] = []
   const seen = new Set<string>()
-  let cursor: number | undefined
+  const conversations: Record<string, unknown>[] = []
 
+  // ── Pass 1: recently CREATED conversations (stop on createdAt cutoff) ──
+  let cursor: number | undefined
   while (true) {
     const params: Record<string, unknown> = { channelType: 'whatsapp', limit: 50 }
     if (cursor !== undefined) params.cursor = cursor
-
     let page: Record<string, unknown>
-    try {
-      page = await spurRequest('conversation_search', params)
-    } catch (e) {
-      console.error('[cron] conversation_search failed:', e)
-      break
-    }
+    try { page = await spurRequest('conversation_search', params) }
+    catch (e) { console.error('[cron] pass1 failed:', e); break }
 
-    const batch: Record<string, unknown>[] = page.conversations as Record<string, unknown>[] ?? []
+    const batch = (page.conversations as Record<string, unknown>[]) ?? []
     if (batch.length === 0) break
 
-    let reachedCutoff = false
+    let hitCutoff = false
     for (const c of batch) {
-      const t = c.lastMessageAt as string | null
-      if (!t || new Date(t) < since) { reachedCutoff = true; break }
+      const created = c.createdAt as string | null
+      // Stop once conversations are older than 24h (list is newest-created first)
+      if (!created || new Date(created) < since) { hitCutoff = true; break }
       const id = String(c.conversationId)
       if (!seen.has(id)) { seen.add(id); conversations.push(c) }
     }
+    if (hitCutoff || !page.nextCursor) break
+    cursor = page.nextCursor as number
+  }
 
-    if (reachedCutoff || !page.nextCursor) break
+  // ── Pass 2: unread conversations (any age — catches old convos with new customer messages) ──
+  cursor = undefined
+  while (true) {
+    const params: Record<string, unknown> = { channelType: 'whatsapp', limit: 50, unreadOnly: true }
+    if (cursor !== undefined) params.cursor = cursor
+    let page: Record<string, unknown>
+    try { page = await spurRequest('conversation_search', params) }
+    catch (e) { console.error('[cron] pass2 failed:', e); break }
+
+    const batch = (page.conversations as Record<string, unknown>[]) ?? []
+    if (batch.length === 0) break
+
+    for (const c of batch) {
+      const id = String(c.conversationId)
+      if (!seen.has(id)) { seen.add(id); conversations.push(c) }
+    }
+    if (!page.nextCursor) break
     cursor = page.nextCursor as number
   }
 
