@@ -93,23 +93,36 @@ export async function getAllTickets(): Promise<Ticket[]> {
   return res.data.values.filter(r => r[0]).map(rowToTicket)
 }
 
-// Returns a map of conversationId → latest lastActiveAt epoch stored in the sheet.
-// If a conversation appears multiple times (re-opened tickets), the highest epoch wins.
-export async function getExistingConversationLastActive(): Promise<Map<string, number>> {
+// Returns a map of conversationId → { epoch, status } for the LATEST ticket per conversation.
+// "Latest" = the row with the highest lastActiveAt epoch, which is always the most recently
+// appended ticket since we never reorder rows.
+export async function getExistingConversations(): Promise<Map<string, { epoch: number; status: string }>> {
   const auth = getAuth()
   const sheets = google.sheets({ version: 'v4', auth })
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: `${SHEET_NAME}!B2:L`,  // B=conversationId, L=lastActiveAt
+    // B=conversationId, I=status (index 7 in B:L), L=lastActiveAt (index 10 in B:L)
+    range: `${SHEET_NAME}!B2:L`,
   })
-  const map = new Map<string, number>()
+  const map = new Map<string, { epoch: number; status: string }>()
   for (const row of res.data.values ?? []) {
     const convId = row[0]
-    const epoch = Number(row[10])  // column L is index 10 within B:L range
     if (!convId) continue
-    const prev = map.get(convId) ?? 0
-    if (!isNaN(epoch) && epoch > prev) map.set(convId, epoch)
+    const status = (row[7] as string) ?? 'open'
+    const epoch = Number(row[10])
+    const prev = map.get(convId)
+    if (!prev || (!isNaN(epoch) && epoch > prev.epoch)) {
+      map.set(convId, { epoch: isNaN(epoch) ? 0 : epoch, status })
+    }
   }
+  return map
+}
+
+// Kept for backward compat with the legacy /api/poll route.
+export async function getExistingConversationLastActive(): Promise<Map<string, number>> {
+  const existing = await getExistingConversations()
+  const map = new Map<string, number>()
+  for (const [id, v] of existing) map.set(id, v.epoch)
   return map
 }
 
@@ -170,7 +183,11 @@ export async function updateTicketLiveData(
     range: `${SHEET_NAME}!A2:N`,
   })
   const rows = res.data.values ?? []
-  const rowIndex = rows.findIndex(r => r[1] === conversationId)
+  // Find the LAST row matching conversationId — that's the most recently appended ticket.
+  let rowIndex = -1
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i][1] === conversationId) { rowIndex = i; break }
+  }
   if (rowIndex === -1) return
 
   const sheetRow = rowIndex + 2
