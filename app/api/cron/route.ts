@@ -51,61 +51,37 @@ async function fetchMessageTexts(conversationId: string): Promise<string[]> {
   }
 }
 
-// Fetch conversations to process this run using two passes:
-//
-// Pass 1 — new conversations: paginate (newest-created first) and stop when
-//           createdAt falls below the watermark. Since the cron runs every 5 min,
-//           this is typically just a handful of pages.
-//
-// Pass 2 — unread conversations: fetch ALL conversations with unread messages
-//           regardless of age. This catches old conversations where a customer
-//           sent a new message (e.g. re-opening an old chat after a closed ticket).
-//
-// The watermark (last successful run timestamp) is stored in the Config sheet
-// so if a run is skipped, the next run automatically catches up.
+// Spur returns conversation_search results ordered by lastMessageAt descending.
+// We paginate and stop as soon as lastMessageAt <= watermark.
+// This catches ALL conversations with any activity since the last run —
+// read or unread, inbound or outbound — in a single pass.
+// For a 5-minute window this is typically 1-2 pages of 50.
 async function fetchConversationsSince(watermark: Date): Promise<Record<string, unknown>[]> {
   const seen = new Set<string>()
   const conversations: Record<string, unknown>[] = []
-
-  // ── Pass 1: conversations CREATED since watermark ──────────────────────────
   let cursor: number | undefined
-  outer1: while (true) {
+
+  while (true) {
     const params: Record<string, unknown> = { channelType: 'whatsapp', limit: 50 }
     if (cursor !== undefined) params.cursor = cursor
+
     let page: Record<string, unknown>
     try { page = await spurRequest('conversation_search', params) }
-    catch (e) { console.error('[cron] pass1 failed:', e); break }
+    catch (e) { console.error('[cron] conversation_search failed:', e); break }
 
     const batch = (page.conversations as Record<string, unknown>[]) ?? []
     if (batch.length === 0) break
 
+    let reachedCutoff = false
     for (const c of batch) {
-      const created = c.createdAt as string | null
-      if (!created || new Date(created) <= watermark) break outer1  // hit cutoff
+      const lastMsgAt = c.lastMessageAt as string | null
+      // Stop once we see conversations whose last activity predates the watermark
+      if (!lastMsgAt || new Date(lastMsgAt) <= watermark) { reachedCutoff = true; break }
       const id = String(c.conversationId)
       if (!seen.has(id)) { seen.add(id); conversations.push(c) }
     }
-    if (!page.nextCursor) break
-    cursor = page.nextCursor as number
-  }
 
-  // ── Pass 2: any unread conversations (catches old chats with new messages) ──
-  cursor = undefined
-  while (true) {
-    const params: Record<string, unknown> = { channelType: 'whatsapp', limit: 50, unreadOnly: true }
-    if (cursor !== undefined) params.cursor = cursor
-    let page: Record<string, unknown>
-    try { page = await spurRequest('conversation_search', params) }
-    catch (e) { console.error('[cron] pass2 failed:', e); break }
-
-    const batch = (page.conversations as Record<string, unknown>[]) ?? []
-    if (batch.length === 0) break
-
-    for (const c of batch) {
-      const id = String(c.conversationId)
-      if (!seen.has(id)) { seen.add(id); conversations.push(c) }
-    }
-    if (!page.nextCursor) break
+    if (reachedCutoff || !page.nextCursor) break
     cursor = page.nextCursor as number
   }
 
