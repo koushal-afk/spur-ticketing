@@ -224,8 +224,11 @@ export async function GET(req: NextRequest) {
   try {
     const runStart = new Date()
 
-    // Read watermark — tells us where the last successful run left off
-    const watermark = await getCronWatermark()
+    // ?hours=N overrides the watermark for a one-time catch-up run (e.g. hours=24)
+    const hoursOverride = req.nextUrl.searchParams.get('hours')
+    const watermark = hoursOverride
+      ? new Date(Date.now() - Number(hoursOverride) * 60 * 60 * 1000)
+      : await getCronWatermark()
 
     const conversations = await fetchConversationsSince(watermark)
     const result = await processConversations(conversations)
