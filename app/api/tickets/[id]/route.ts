@@ -14,6 +14,7 @@ export async function PATCH(
     if (body.status !== undefined) allowed.status = body.status as TicketStatus
     if (body.priority !== undefined) allowed.priority = body.priority as TicketPriority
     if (body.conversationSummary !== undefined) allowed.conversationSummary = body.conversationSummary
+    if (body.employeeComment !== undefined) allowed.employeeComment = body.employeeComment
     const updated = await updateTicket(id, allowed)
     return NextResponse.json({ ticket: updated })
   } catch (e) {
