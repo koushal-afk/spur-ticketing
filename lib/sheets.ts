@@ -189,7 +189,7 @@ export async function updateTicketLiveData(
   conversationId: string,
   firstMessage: string,
   lastMessage: string,
-  conversationSummary: string,
+  conversationSummary: string | undefined,
   lastActiveAt: string,
 ) {
   const auth = getAuth()
@@ -216,9 +216,9 @@ export async function updateTicketLiveData(
     requestBody: {
       valueInputOption: 'RAW',
       data: [
-        { range: `${SHEET_NAME}!E${sheetRow}`, values: [[firstMessage]] },
-        { range: `${SHEET_NAME}!F${sheetRow}`, values: [[lastMessage]] },
-        { range: `${SHEET_NAME}!G${sheetRow}`, values: [[conversationSummary]] },
+        ...(firstMessage ? [{ range: `${SHEET_NAME}!E${sheetRow}`, values: [[firstMessage]] }] : []),
+        ...(lastMessage ? [{ range: `${SHEET_NAME}!F${sheetRow}`, values: [[lastMessage]] }] : []),
+        ...(conversationSummary !== undefined ? [{ range: `${SHEET_NAME}!G${sheetRow}`, values: [[conversationSummary]] }] : []),
         { range: `${SHEET_NAME}!L${sheetRow}`, values: [[toIST(lastActiveAt)]] },
         { range: `${SHEET_NAME}!M${sheetRow}`, values: [[toIST(now)]] },
       ],

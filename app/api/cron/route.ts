@@ -144,8 +144,10 @@ export async function processConversations(conversations: Record<string, unknown
     if (!info) {
       needsNewTicket.push(conv)
     } else if (info.status === 'closed' || info.status === 'resolved') {
-      if (spurMs > info.epoch) needsNewTicket.push(conv)
-      else skipped++
+      // Any activity since last run on a closed/resolved ticket = new issue, always re-open.
+      // We don't epoch-compare here: the conversation was only fetched because its
+      // lastMessageAt > watermark, so new activity is guaranteed.
+      needsNewTicket.push(conv)
     } else {
       if (spurMs > info.epoch) needsUpdate.push(conv)
       else skipped++
@@ -198,12 +200,15 @@ export async function processConversations(conversations: Record<string, unknown
       const id = String(conv.conversationId)
       const s = conv as Record<string, string | null>
       const texts = updateMsgs[id] ?? []
-      if (texts.length === 0) return
-      const summary = await safeSum(texts, texts[0] ?? s.lastMessagePreview ?? '')
+      // Even with no inbound messages, always update lastActiveAt so the ticket
+      // stays in sync with Spur and doesn't fall behind the watermark next run.
+      const summary = texts.length > 0
+        ? await safeSum(texts, texts[0] ?? s.lastMessagePreview ?? '')
+        : undefined
       await updateTicketLiveData(
         id,
-        texts[texts.length - 1], // firstMessage (oldest)
-        texts[0],                 // lastMessage  (newest)
+        texts[texts.length - 1] ?? s.lastMessagePreview ?? '',
+        texts[0] ?? s.lastMessagePreview ?? '',
         summary,
         s.lastMessageAt ?? '',
       ).catch(e => console.error(`[cron] updateTicketLiveData ${id}:`, e))
