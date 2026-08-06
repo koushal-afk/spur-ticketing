@@ -149,8 +149,15 @@ export async function processConversations(conversations: Record<string, unknown
       // lastMessageAt > watermark, so new activity is guaranteed.
       needsNewTicket.push(conv)
     } else {
-      if (spurMs > info.epoch) needsUpdate.push(conv)
-      else skipped++
+      // open / in_progress ticket exists
+      if (spurMs > info.epoch) {
+        // If new activity is 24+ hours after the last recorded activity, it's a
+        // new issue from the same customer — open a fresh ticket rather than
+        // appending to the old one.
+        const gapHours = (spurMs - info.epoch) / (1000 * 60 * 60)
+        if (gapHours >= 24) needsNewTicket.push(conv)
+        else needsUpdate.push(conv)
+      } else skipped++
     }
   }
 
