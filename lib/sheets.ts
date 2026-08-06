@@ -191,6 +191,7 @@ export async function updateTicketLiveData(
   lastMessage: string,
   conversationSummary: string | undefined,
   lastActiveAt: string,
+  status?: string,
 ) {
   const auth = getAuth()
   const sheets = google.sheets({ version: 'v4', auth })
@@ -210,7 +211,8 @@ export async function updateTicketLiveData(
   const sheetRow = rowIndex + 2
   const now = new Date().toISOString()
 
-  // Update columns E (firstMessage), F (lastMessage), G (summary), L (lastActiveAt), M (updatedAt)
+  // Update columns E (firstMessage), F (lastMessage), G (summary), I (status),
+  // L (lastActiveAt), M (updatedAt)
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId: SHEET_ID,
     requestBody: {
@@ -219,6 +221,7 @@ export async function updateTicketLiveData(
         ...(firstMessage ? [{ range: `${SHEET_NAME}!E${sheetRow}`, values: [[firstMessage]] }] : []),
         ...(lastMessage ? [{ range: `${SHEET_NAME}!F${sheetRow}`, values: [[lastMessage]] }] : []),
         ...(conversationSummary !== undefined ? [{ range: `${SHEET_NAME}!G${sheetRow}`, values: [[conversationSummary]] }] : []),
+        ...(status ? [{ range: `${SHEET_NAME}!I${sheetRow}`, values: [[status]] }] : []),
         { range: `${SHEET_NAME}!L${sheetRow}`, values: [[toIST(lastActiveAt)]] },
         { range: `${SHEET_NAME}!M${sheetRow}`, values: [[toIST(now)]] },
       ],

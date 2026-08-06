@@ -95,6 +95,10 @@ const FETCH_BATCH = 5
 // Max new tickets per run — message fetch + summarise is slow; remaining will
 // be picked up by the next 5-minute run.
 const MAX_NEW_PER_RUN = 10
+// If a conversation's new activity arrives more than this long after its ticket's
+// last activity, treat it as a new issue (new ticket) instead of continuing the old one —
+// regardless of the old ticket's status (open, in_progress, resolved, or closed).
+const GRACE_WINDOW_MS = 3 * 60 * 60 * 1000
 
 async function batchFetchMessages(ids: string[]): Promise<Record<string, string[]>> {
   const map: Record<string, string[]> = {}
@@ -127,10 +131,13 @@ export async function processConversations(conversations: Record<string, unknown
   const existing = await getExistingConversations()
 
   // Classify each conversation:
-  //   needsNewTicket  — no ticket yet, OR latest ticket is closed/resolved (re-opened issue)
-  //   needsUpdate     — latest ticket is open/in_progress AND there's a newer message from Spur
+  //   needsNewTicket  — no existing ticket, OR the gap since the existing ticket's last
+  //                     activity exceeds GRACE_WINDOW_MS (new issue, regardless of status)
+  //   needsUpdate     — there's a newer message AND it arrived within the grace window of
+  //                     the existing ticket's last activity (same issue continuing); if that
+  //                     ticket was closed/resolved, it gets reopened to 'open'
   const needsNewTicket: Record<string, unknown>[] = []
-  const needsUpdate: Record<string, unknown>[] = []
+  const needsUpdate: { conv: Record<string, unknown>; reopen: boolean }[] = []
   let skipped = 0
 
   for (const conv of conversations) {
@@ -143,14 +150,14 @@ export async function processConversations(conversations: Record<string, unknown
 
     if (!info) {
       needsNewTicket.push(conv)
-    } else if (info.status === 'closed' || info.status === 'resolved') {
-      // Any activity since last run on a closed/resolved ticket = new issue, always re-open.
-      // We don't epoch-compare here: the conversation was only fetched because its
-      // lastMessageAt > watermark, so new activity is guaranteed.
+    } else if (spurMs <= info.epoch) {
+      skipped++
+    } else if (spurMs - info.epoch >= GRACE_WINDOW_MS) {
+      // Gap since last activity is beyond the grace window — new issue, new ticket.
       needsNewTicket.push(conv)
     } else {
-      if (spurMs > info.epoch) needsUpdate.push(conv)
-      else skipped++
+      // Within the grace window — same issue, continue the existing ticket.
+      needsUpdate.push({ conv, reopen: info.status === 'closed' || info.status === 'resolved' })
     }
   }
 
@@ -159,7 +166,7 @@ export async function processConversations(conversations: Record<string, unknown
 
   // Fetch messages in parallel batches
   const createIds = toCreate.map(c => String(c.conversationId))
-  const updateIds = needsUpdate.map(c => String(c.conversationId))
+  const updateIds = needsUpdate.map(u => String(u.conv.conversationId))
 
   const [createMsgs, updateMsgs] = await Promise.all([
     batchFetchMessages(createIds),
@@ -194,9 +201,9 @@ export async function processConversations(conversations: Record<string, unknown
   )
   if (newTickets.length > 0) await appendTickets(newTickets)
 
-  // ── Update existing open tickets ──────────────────────────────────────────
+  // ── Update existing tickets (reopening closed/resolved ones within the grace window) ──
   await Promise.all(
-    needsUpdate.map(async conv => {
+    needsUpdate.map(async ({ conv, reopen }) => {
       const id = String(conv.conversationId)
       const s = conv as Record<string, string | null>
       const texts = updateMsgs[id] ?? []
@@ -211,6 +218,7 @@ export async function processConversations(conversations: Record<string, unknown
         texts[0] ?? s.lastMessagePreview ?? '',
         summary,
         s.lastMessageAt ?? '',
+        reopen ? 'open' : undefined,
       ).catch(e => console.error(`[cron] updateTicketLiveData ${id}:`, e))
     })
   )
