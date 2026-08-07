@@ -155,7 +155,7 @@ export async function processConversations(conversations: Record<string, unknown
         // new issue from the same customer — open a fresh ticket rather than
         // appending to the old one.
         const gapHours = (spurMs - info.epoch) / (1000 * 60 * 60)
-        if (gapHours >= 24) needsNewTicket.push(conv)
+        if (gapHours >= 3) needsNewTicket.push(conv)
         else needsUpdate.push(conv)
       } else skipped++
     }
