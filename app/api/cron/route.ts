@@ -94,7 +94,7 @@ async function fetchConversationsSince(watermark: Date): Promise<Record<string, 
 const FETCH_BATCH = 5
 // Max new tickets per run — message fetch + summarise is slow; remaining will
 // be picked up by the next 5-minute run.
-const MAX_NEW_PER_RUN = 10
+const MAX_NEW_PER_RUN = 25
 
 async function batchFetchMessages(ids: string[]): Promise<Record<string, string[]>> {
   const map: Record<string, string[]> = {}
@@ -120,8 +120,9 @@ export async function processConversations(conversations: Record<string, unknown
   created: number
   updated: number
   skipped: number
+  safeWatermark: Date | null
 }> {
-  if (conversations.length === 0) return { created: 0, updated: 0, skipped: 0 }
+  if (conversations.length === 0) return { created: 0, updated: 0, skipped: 0, safeWatermark: null }
 
   await ensureHeaders()
   const existing = await getExistingConversations()
@@ -161,8 +162,16 @@ export async function processConversations(conversations: Record<string, unknown
     }
   }
 
-  // Cap new ticket creation per run; remainder caught by next 5-min run
+  // Cap new ticket creation per run. Process oldest-first so we make steady
+  // chronological progress through a backlog instead of always creating the
+  // newest ones and starving older conversations.
+  needsNewTicket.sort((a, b) => {
+    const aMs = a.lastMessageAt ? new Date(a.lastMessageAt as string).getTime() : 0
+    const bMs = b.lastMessageAt ? new Date(b.lastMessageAt as string).getTime() : 0
+    return aMs - bMs
+  })
   const toCreate = needsNewTicket.slice(0, MAX_NEW_PER_RUN)
+  const uncreatedOverflow = needsNewTicket.slice(MAX_NEW_PER_RUN)
 
   // Fetch messages in parallel batches
   const createIds = toCreate.map(c => String(c.conversationId))
@@ -222,7 +231,16 @@ export async function processConversations(conversations: Record<string, unknown
     })
   )
 
-  return { created: newTickets.length, updated: needsUpdate.length, skipped }
+  // If some new-ticket conversations were left uncreated due to the per-run cap,
+  // the watermark must not advance past them — otherwise fetchConversationsSince
+  // would never see them again and they'd be silently lost forever.
+  const safeWatermark = uncreatedOverflow.length > 0
+    ? new Date((uncreatedOverflow[0].lastMessageAt as string)
+        ? new Date(uncreatedOverflow[0].lastMessageAt as string).getTime() - 1
+        : Date.now())
+    : null
+
+  return { created: newTickets.length, updated: needsUpdate.length, skipped, safeWatermark }
 }
 
 // ── HTTP handler ──────────────────────────────────────────────────────────────
@@ -245,14 +263,17 @@ export async function GET(req: NextRequest) {
     const conversations = await fetchConversationsSince(watermark)
     const result = await processConversations(conversations)
 
-    // Only advance the watermark after successful processing
-    await setCronWatermark(runStart)
+    // Only advance the watermark after successful processing. If some new
+    // tickets were left uncreated due to the per-run cap, stop the watermark
+    // just before them so the next run picks them up instead of losing them.
+    const newWatermark = result.safeWatermark ?? runStart
+    await setCronWatermark(newWatermark)
 
     return NextResponse.json({
       ...result,
       total_fetched: conversations.length,
       watermark_was: watermark.toISOString(),
-      watermark_now: runStart.toISOString(),
+      watermark_now: newWatermark.toISOString(),
     })
   } catch (e) {
     console.error('[cron] fatal:', e)
