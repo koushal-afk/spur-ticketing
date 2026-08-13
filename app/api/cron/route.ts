@@ -137,7 +137,10 @@ async function recheckKnownConversations(): Promise<Record<string, unknown>[]> {
   const cutoff = Date.now() - RECHECK_WINDOW_DAYS * 24 * 60 * 60 * 1000
 
   const candidates = Array.from(detailed.entries())
-    .filter(([, info]) => (info.status === 'open' || info.status === 'in_progress') && info.epoch >= cutoff)
+    // All statuses are eligible: open/in_progress need their fields refreshed,
+    // and closed/resolved need to be reopened as a fresh ticket (handled by
+    // processConversations) if the customer messaged again.
+    .filter(([, info]) => info.epoch >= cutoff)
     // Least-recently-active first, so coverage rotates across runs instead of
     // always re-checking the same handful of newest tickets.
     .sort((a, b) => a[1].epoch - b[1].epoch)
