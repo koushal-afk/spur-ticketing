@@ -155,7 +155,12 @@ async function recheckKnownConversations(): Promise<Record<string, unknown>[]> {
           })
           const latest = result.messages?.[0]
           const latestMs = latest?.sentDateTime ? new Date(latest.sentDateTime).getTime() : 0
-          if (latestMs > info.epoch) {
+          // toIST() truncates to whole seconds when writing lastActiveAt to the
+          // sheet, so compare at second precision too — otherwise a message
+          // with sub-second timestamp precision never matches what's stored
+          // and gets re-flagged as "new" on every single run forever.
+          const latestMsFloored = Math.floor(latestMs / 1000) * 1000
+          if (latestMsFloored > info.epoch) {
             hits.push({
               conversationId: id,
               contactName: info.contactName,
@@ -194,9 +199,12 @@ export async function processConversations(conversations: Record<string, unknown
   for (const conv of conversations) {
     const id = String(conv.conversationId)
     const info = existing.get(id)
-    // info.epoch is UTC ms; compare to Spur's lastMessageAt also in UTC ms
+    // info.epoch is UTC ms truncated to whole seconds (toIST() drops
+    // sub-second precision on write), so floor here too before comparing —
+    // otherwise a message with sub-second precision never matches what's
+    // stored and looks "newer" even when it's the same message already recorded.
     const spurMs = conv.lastMessageAt
-      ? new Date(conv.lastMessageAt as string).getTime()
+      ? Math.floor(new Date(conv.lastMessageAt as string).getTime() / 1000) * 1000
       : 0
 
     if (!info) {
