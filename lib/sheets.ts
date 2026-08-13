@@ -135,6 +135,37 @@ export async function getExistingConversations(): Promise<Map<string, { epoch: n
   return map
 }
 
+// Like getExistingConversations, but also carries contact info so the cron's
+// re-check pass can synthesize a conversation-shaped object without an extra
+// Spur lookup per candidate.
+export async function getExistingConversationsDetailed(): Promise<Map<string, {
+  epoch: number
+  status: string
+  contactName: string
+  contactPhone: string
+}>> {
+  const auth = getAuth()
+  const sheets = google.sheets({ version: 'v4', auth })
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${SHEET_NAME}!A2:L`,
+  })
+  const map = new Map<string, { epoch: number; status: string; contactName: string; contactPhone: string }>()
+  for (const row of res.data.values ?? []) {
+    const convId = row[1]
+    if (!convId) continue
+    const contactName = row[2] ?? ''
+    const contactPhone = row[3] ?? ''
+    const status = (row[8] as string) ?? 'open'
+    const ms = fromIST(row[11])
+    const prev = map.get(convId)
+    if (!prev || ms > prev.epoch) {
+      map.set(convId, { epoch: ms, status, contactName, contactPhone })
+    }
+  }
+  return map
+}
+
 // Kept for backward compat with the legacy /api/poll route.
 export async function getExistingConversationLastActive(): Promise<Map<string, number>> {
   const existing = await getExistingConversations()

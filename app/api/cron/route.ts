@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { appendTickets, ensureHeaders, getExistingConversations, updateTicketLiveData, getCronWatermark, setCronWatermark } from '@/lib/sheets'
+import { appendTickets, ensureHeaders, getExistingConversations, getExistingConversationsDetailed, updateTicketLiveData, getCronWatermark, setCronWatermark } from '@/lib/sheets'
 import { summarizeConversation } from '@/lib/summarize'
 import { Ticket } from '@/lib/types'
 import { randomUUID } from 'crypto'
@@ -114,6 +114,63 @@ async function safeSum(texts: string[], fallback: string): Promise<string> {
   } catch {
     return texts[0] ?? fallback
   }
+}
+
+// ── Re-check pass ────────────────────────────────────────────────────────────
+//
+// Spur's conversation_search results are ordered by conversationId (roughly
+// creation order), NOT by lastMessageAt — despite the field name suggesting
+// otherwise. This means a customer replying on an old conversation thread
+// never surfaces via the normal newest-first scan below, since pagination
+// stops as soon as it sees anything past the watermark.
+//
+// To catch these, we independently re-verify conversations we already have
+// an open/in_progress ticket for for genuinely new activity beyond what's
+// recorded, using a direct per-conversation lookup instead of relying on
+// list ordering. Bounded to recently-active tickets so cost stays flat as
+// the sheet grows.
+const RECHECK_WINDOW_DAYS = 30
+const RECHECK_LIMIT_PER_RUN = 40
+
+async function recheckKnownConversations(): Promise<Record<string, unknown>[]> {
+  const detailed = await getExistingConversationsDetailed()
+  const cutoff = Date.now() - RECHECK_WINDOW_DAYS * 24 * 60 * 60 * 1000
+
+  const candidates = Array.from(detailed.entries())
+    .filter(([, info]) => (info.status === 'open' || info.status === 'in_progress') && info.epoch >= cutoff)
+    // Least-recently-active first, so coverage rotates across runs instead of
+    // always re-checking the same handful of newest tickets.
+    .sort((a, b) => a[1].epoch - b[1].epoch)
+    .slice(0, RECHECK_LIMIT_PER_RUN)
+
+  const hits: Record<string, unknown>[] = []
+  for (let i = 0; i < candidates.length; i += FETCH_BATCH) {
+    const batch = candidates.slice(i, i + FETCH_BATCH)
+    await Promise.all(
+      batch.map(async ([id, info]) => {
+        try {
+          const result = await spurRequest('conversation_messages', {
+            conversationId: Number(id),
+            limit: 1,
+          })
+          const latest = result.messages?.[0]
+          const latestMs = latest?.sentDateTime ? new Date(latest.sentDateTime).getTime() : 0
+          if (latestMs > info.epoch) {
+            hits.push({
+              conversationId: id,
+              contactName: info.contactName,
+              contactPhone: info.contactPhone,
+              lastMessagePreview: null,
+              lastMessageAt: latest.sentDateTime,
+            })
+          }
+        } catch (e) {
+          console.error(`[cron] recheck ${id}:`, e)
+        }
+      })
+    )
+  }
+  return hits
 }
 
 export async function processConversations(conversations: Record<string, unknown>[]): Promise<{
@@ -260,18 +317,31 @@ export async function GET(req: NextRequest) {
       ? new Date(Date.now() - Number(hoursOverride) * 60 * 60 * 1000)
       : await getCronWatermark()
 
-    const conversations = await fetchConversationsSince(watermark)
+    const [fromScan, fromRecheck] = await Promise.all([
+      fetchConversationsSince(watermark),
+      recheckKnownConversations(),
+    ])
+
+    // Merge, preferring the normal scan's richer conversation object when a
+    // conversationId appears in both (recheck hits are a minimal synthesis).
+    const seen = new Set(fromScan.map(c => String(c.conversationId)))
+    const conversations = [...fromScan, ...fromRecheck.filter(c => !seen.has(String(c.conversationId)))]
+
     const result = await processConversations(conversations)
 
     // Only advance the watermark after successful processing. If some new
     // tickets were left uncreated due to the per-run cap, stop the watermark
     // just before them so the next run picks them up instead of losing them.
+    // (Recheck hits never affect the watermark — they're revisited every run
+    // via getExistingConversationsDetailed regardless of scan position.)
     const newWatermark = result.safeWatermark ?? runStart
     await setCronWatermark(newWatermark)
 
     return NextResponse.json({
       ...result,
       total_fetched: conversations.length,
+      from_scan: fromScan.length,
+      from_recheck: fromRecheck.length,
       watermark_was: watermark.toISOString(),
       watermark_now: newWatermark.toISOString(),
     })
