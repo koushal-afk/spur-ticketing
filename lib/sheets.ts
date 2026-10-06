@@ -32,6 +32,7 @@ const HEADERS = [
   'first_message', 'last_message', 'conversation_summary',
   'assigned_to', 'status', 'priority',
   'created_at', 'last_active_at', 'updated_at', 'employee_comment',
+  'query_type', 'store_assigned_to', 'store_comments', 'final_resolution_comments',
 ]
 
 function getAuth(): any {
@@ -58,6 +59,10 @@ function rowToTicket(row: string[]): Ticket {
     lastActiveAt: row[11] ?? '',
     updatedAt: row[12] ?? '',
     employeeComment: row[13] ?? '',
+    queryType: row[14] ?? '',
+    storeAssignedTo: row[15] ?? '',
+    storeComments: row[16] ?? '',
+    finalResolutionComments: row[17] ?? '',
   }
 }
 
@@ -68,6 +73,10 @@ function ticketToRow(t: Ticket): string[] {
     t.assignedTo, t.status, t.priority,
     toIST(t.createdAt), toIST(t.lastActiveAt), toIST(t.updatedAt),
     t.employeeComment ?? '',
+    t.queryType ?? '',
+    t.storeAssignedTo ?? '',
+    t.storeComments ?? '',
+    t.finalResolutionComments ?? '',
   ]
 }
 
@@ -87,9 +96,12 @@ export async function ensureHeaders() {
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: `${SHEET_NAME}!A1:N1`,
+    range: `${SHEET_NAME}!A1:R1`,
   })
-  if (!res.data.values || res.data.values[0]?.[0] !== 'ticket_id') {
+  const existingHeaderRow = res.data.values?.[0] ?? []
+  // Rewrite if the header row is missing entirely, or shorter than the current
+  // HEADERS (e.g. an older sheet that predates the resolution-workflow columns).
+  if (existingHeaderRow[0] !== 'ticket_id' || existingHeaderRow.length < HEADERS.length) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: SHEET_ID,
       range: `${SHEET_NAME}!A1`,
@@ -104,10 +116,24 @@ export async function getAllTickets(): Promise<Ticket[]> {
   const sheets = google.sheets({ version: 'v4', auth })
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: `${SHEET_NAME}!A2:N`,
+    range: `${SHEET_NAME}!A2:R`,
   })
   if (!res.data.values) return []
   return res.data.values.filter(r => r[0]).map(rowToTicket)
+}
+
+// Fetches a single ticket by ID. Used by the PATCH route to check ownership
+// (e.g. a store user editing only their own assigned ticket) before writing.
+export async function getTicketById(ticketId: string): Promise<Ticket | null> {
+  const auth = getAuth()
+  const sheets = google.sheets({ version: 'v4', auth })
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${SHEET_NAME}!A2:R`,
+  })
+  const rows = res.data.values ?? []
+  const row = rows.find(r => r[0] === ticketId)
+  return row ? rowToTicket(row) : null
 }
 
 // Returns a map of conversationId → { epoch, status } for the LATEST ticket per conversation.
@@ -193,7 +219,7 @@ export async function updateTicket(ticketId: string, updates: Partial<Ticket>) {
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: `${SHEET_NAME}!A2:N`,
+    range: `${SHEET_NAME}!A2:R`,
   })
   const rows = res.data.values ?? []
   const rowIndex = rows.findIndex(r => r[0] === ticketId)
@@ -209,7 +235,7 @@ export async function updateTicket(ticketId: string, updates: Partial<Ticket>) {
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: SHEET_ID,
-    range: `${SHEET_NAME}!A${sheetRow}:N${sheetRow}`,
+    range: `${SHEET_NAME}!A${sheetRow}:R${sheetRow}`,
     valueInputOption: 'RAW',
     requestBody: { values: [ticketToRow(updated)] },
   })
@@ -255,6 +281,76 @@ export async function updateTicketLiveData(
       ],
     },
   })
+}
+
+// ── Archiving ─────────────────────────────────────────────────────────────────
+
+const ARCHIVE_SHEET = 'Archive'
+
+// Moves every ticket with lastActiveAt older than cutoff — regardless of
+// status — out of the live Tickets sheet and into an Archive tab, so the
+// live sheet (and every getAllTickets() read) stays small and fast.
+export async function archiveTickets(cutoff: Date): Promise<{ archived: number; kept: number }> {
+  const auth = getAuth()
+  const sheets = google.sheets({ version: 'v4', auth })
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${SHEET_NAME}!A2:R`,
+  })
+  const rows = (res.data.values ?? []).filter(r => r[0])
+  const cutoffMs = cutoff.getTime()
+
+  const keepRows: string[][] = []
+  const archiveRows: string[][] = []
+  for (const row of rows) {
+    const ms = fromIST(row[11]) // lastActiveAt
+    ;(ms < cutoffMs ? archiveRows : keepRows).push(row)
+  }
+
+  if (archiveRows.length === 0) {
+    return { archived: 0, kept: keepRows.length }
+  }
+
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID })
+  const names = meta.data.sheets?.map(s => s.properties?.title) ?? []
+  if (!names.includes(ARCHIVE_SHEET)) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: SHEET_ID,
+      requestBody: { requests: [{ addSheet: { properties: { title: ARCHIVE_SHEET } } }] },
+    })
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `${ARCHIVE_SHEET}!A1`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [HEADERS] },
+    })
+  }
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: `${ARCHIVE_SHEET}!A1`,
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: { values: archiveRows },
+  })
+
+  // Rewrite the live sheet with only the kept rows. Clear the old body first —
+  // it may have been longer than keepRows — then write keepRows from A2.
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId: SHEET_ID,
+    range: `${SHEET_NAME}!A2:R`,
+  })
+  if (keepRows.length > 0) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `${SHEET_NAME}!A2`,
+      valueInputOption: 'RAW',
+      requestBody: { values: keepRows },
+    })
+  }
+
+  return { archived: archiveRows.length, kept: keepRows.length }
 }
 
 // ── Users ────────────────────────────────────────────────────────────────────

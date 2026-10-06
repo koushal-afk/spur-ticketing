@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'executive' | 'employee'
+export type UserRole = 'admin' | 'executive' | 'employee' | 'store'
 
 export interface AppUser {
   id: string
@@ -31,6 +31,10 @@ export interface Ticket {
   createdAt: string
   lastActiveAt: string
   updatedAt: string
+  queryType?: string
+  storeAssignedTo?: string
+  storeComments?: string
+  finalResolutionComments?: string
 }
 
 export interface SpurConversation {

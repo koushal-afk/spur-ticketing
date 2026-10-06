@@ -1,21 +1,41 @@
 'use client'
 import { useState } from 'react'
-import { Ticket, TicketStatus, TicketPriority, UserRole } from '@/lib/types'
+import { Ticket, TicketStatus, TicketPriority, UserRole, AppUser } from '@/lib/types'
 import { TEAM_MEMBERS } from '@/lib/team'
+import { QUERY_TYPES } from '@/lib/queryTypes'
 import { StatusBadge, PriorityBadge } from './StatusBadge'
-import { ArrowLeft, Phone, MessageSquare, User, Calendar, Clock, FileText, Save, CheckCircle } from 'lucide-react'
+import { ArrowLeft, Phone, MessageSquare, User, Calendar, Clock, FileText, Save, CheckCircle, Store, ListChecks } from 'lucide-react'
 import Link from 'next/link'
 import { formatIST } from '@/lib/dateUtils'
 
-export default function TicketDetail({ ticket: initial, userRole }: { ticket: Ticket; userRole: UserRole }) {
+export default function TicketDetail({
+  ticket: initial,
+  userRole,
+  userName,
+  storeUsers,
+}: {
+  ticket: Ticket
+  userRole: UserRole
+  userName: string
+  storeUsers: AppUser[]
+}) {
   const [ticket, setTicket] = useState(initial)
   const [saving, setSaving] = useState(false)
   const [empComment, setEmpComment] = useState(initial.employeeComment ?? '')
   const [empSaving, setEmpSaving] = useState(false)
   const [empSaved, setEmpSaved] = useState(false)
 
+  const [storeComment, setStoreComment] = useState(initial.storeComments ?? '')
+  const [storeSaving, setStoreSaving] = useState(false)
+  const [storeSaved, setStoreSaved] = useState(false)
+
+  const [finalResolution, setFinalResolution] = useState(initial.finalResolutionComments ?? '')
+  const [finalSaving, setFinalSaving] = useState(false)
+  const [finalSaved, setFinalSaved] = useState(false)
+
   const canEdit = userRole === 'admin' || userRole === 'executive'
   const canClose = userRole === 'admin' || userRole === 'executive' || userRole === 'employee'
+  const canEditStoreComment = canEdit || (userRole === 'store' && ticket.storeAssignedTo === userName)
 
   const update = async (fields: Partial<Ticket>) => {
     setSaving(true)
@@ -45,6 +65,38 @@ export default function TicketDetail({ ticket: initial, userRole }: { ticket: Ti
       setTimeout(() => setEmpSaved(false), 2000)
     }
     setEmpSaving(false)
+  }
+
+  const saveStoreComment = async () => {
+    setStoreSaving(true)
+    const res = await fetch(`/api/tickets/${ticket.ticketId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ storeComments: storeComment }),
+    })
+    if (res.ok) {
+      const data = await res.json()
+      setTicket(data.ticket)
+      setStoreSaved(true)
+      setTimeout(() => setStoreSaved(false), 2000)
+    }
+    setStoreSaving(false)
+  }
+
+  const saveFinalResolution = async () => {
+    setFinalSaving(true)
+    const res = await fetch(`/api/tickets/${ticket.ticketId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ finalResolutionComments: finalResolution }),
+    })
+    if (res.ok) {
+      const data = await res.json()
+      setTicket(data.ticket)
+      setFinalSaved(true)
+      setTimeout(() => setFinalSaved(false), 2000)
+    }
+    setFinalSaving(false)
   }
 
   const closeTicket = () => update({ status: 'closed' })
@@ -121,6 +173,117 @@ export default function TicketDetail({ ticket: initial, userRole }: { ticket: Ti
             <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap">
               {ticket.conversationSummary || <span className="text-gray-400 italic">No comments yet.</span>}
             </p>
+          </div>
+
+          {/* Resolution Workflow: CX categorizes & assigns → store responds → CX confirms with customer */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-5">
+            <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+              <ListChecks size={16} /> Resolution Workflow
+            </h3>
+
+            {/* Step 1: query type + store assignment */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">Type of Query</label>
+                {canEdit ? (
+                  <select
+                    value={ticket.queryType ?? ''}
+                    onChange={e => update({ queryType: e.target.value })}
+                    disabled={saving}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select type…</option>
+                    {QUERY_TYPES.map(qt => (
+                      <option key={qt} value={qt}>{qt}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="text-sm text-gray-700">{ticket.queryType || <span className="text-gray-400 italic">Not set</span>}</span>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5 flex items-center gap-1">
+                  <Store size={11} /> Assigned Store Executive
+                </label>
+                {canEdit ? (
+                  <select
+                    value={ticket.storeAssignedTo ?? ''}
+                    onChange={e => update({ storeAssignedTo: e.target.value })}
+                    disabled={saving}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Unassigned</option>
+                    {storeUsers.map(u => (
+                      <option key={u.id} value={u.name}>{u.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="text-sm text-gray-700">{ticket.storeAssignedTo || <span className="text-gray-400 italic">Unassigned</span>}</span>
+                )}
+              </div>
+            </div>
+
+            {/* Step 2: store executive's comments */}
+            <div className="pt-4 border-t border-gray-100">
+              <label className="block text-xs font-medium text-gray-500 mb-1.5">Store Executive Comments</label>
+              {canEditStoreComment ? (
+                <div className="space-y-2">
+                  <textarea
+                    value={storeComment}
+                    onChange={e => setStoreComment(e.target.value)}
+                    rows={3}
+                    placeholder="What did the store find / do about this?"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={saveStoreComment}
+                      disabled={storeSaving}
+                      className="flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
+                    >
+                      <Save size={13} />
+                      {storeSaving ? 'Saving…' : 'Save Store Comment'}
+                    </button>
+                    {storeSaved && <span className="text-green-600 text-sm">✓ Saved</span>}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap">
+                  {ticket.storeComments || <span className="text-gray-400 italic">Waiting on store executive.</span>}
+                </p>
+              )}
+            </div>
+
+            {/* Step 3: CX's final resolution, after checking back with the customer */}
+            <div className="pt-4 border-t border-gray-100">
+              <label className="block text-xs font-medium text-gray-500 mb-1.5">Final Resolution (after checking with customer)</label>
+              {canEdit ? (
+                <div className="space-y-2">
+                  <textarea
+                    value={finalResolution}
+                    onChange={e => setFinalResolution(e.target.value)}
+                    rows={3}
+                    placeholder="How was this resolved with the customer?"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={saveFinalResolution}
+                      disabled={finalSaving}
+                      className="flex items-center gap-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
+                    >
+                      <Save size={13} />
+                      {finalSaving ? 'Saving…' : 'Save Resolution'}
+                    </button>
+                    {finalSaved && <span className="text-green-600 text-sm">✓ Saved</span>}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap">
+                  {ticket.finalResolutionComments || <span className="text-gray-400 italic">Not resolved with customer yet.</span>}
+                </p>
+              )}
+            </div>
           </div>
 
           {/* Employee Notes — editable by employees, read-only for others */}

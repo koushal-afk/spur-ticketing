@@ -1,13 +1,15 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Ticket, TicketStatus, TicketPriority, UserRole } from '@/lib/types'
 import { TEAM_MEMBERS, UNASSIGNED } from '@/lib/team'
 import { StatusBadge, PriorityBadge } from './StatusBadge'
-import { MessageSquare, Phone, Clock, User, ChevronUp, ChevronDown } from 'lucide-react'
+import { MessageSquare, Phone, Clock, User, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { formatIST, parseSheetDate } from '@/lib/dateUtils'
 
 type SortKey = 'lastActiveAt' | 'createdAt' | 'contactName' | 'status' | 'priority'
+
+const PAGE_SIZE = 50
 
 export default function TicketTable({ initialTickets, userRole = 'admin' }: { initialTickets: Ticket[], userRole?: UserRole }) {
   const canEdit = userRole === 'admin' || userRole === 'executive'
@@ -18,6 +20,7 @@ export default function TicketTable({ initialTickets, userRole = 'admin' }: { in
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('lastActiveAt')
   const [sortAsc, setSortAsc] = useState(false)
+  const [page, setPage] = useState(1)
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortAsc(a => !a)
@@ -40,10 +43,46 @@ export default function TicketTable({ initialTickets, userRole = 'admin' }: { in
       return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va)
     })
 
+  // Rendering every filtered row's DOM nodes at once is what actually makes a
+  // large sheet feel slow — paginate the render, not just the filtering.
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const paged = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  useEffect(() => {
+    setPage(1)
+  }, [search, filterStatus, filterAssignee, filterPriority, sortKey, sortAsc])
+
   const SortIcon = ({ k }: { k: SortKey }) =>
     sortKey === k
       ? sortAsc ? <ChevronUp size={14} /> : <ChevronDown size={14} />
       : <span className="w-[14px]" />
+
+  const Pagination = () => (
+    totalPages > 1 ? (
+      <div className="flex items-center justify-between pt-1">
+        <span className="text-xs text-gray-500">
+          Page {currentPage} of {totalPages}
+        </span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            className="flex items-center gap-1 text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+          >
+            <ChevronLeft size={14} /> Prev
+          </button>
+          <button
+            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            disabled={currentPage === totalPages}
+            className="flex items-center gap-1 text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+          >
+            Next <ChevronRight size={14} />
+          </button>
+        </div>
+      </div>
+    ) : null
+  )
 
   const handleQuickAssign = async (ticketId: string, assignedTo: string) => {
     const res = await fetch(`/api/tickets/${ticketId}`, {
@@ -118,7 +157,7 @@ export default function TicketTable({ initialTickets, userRole = 'admin' }: { in
         {filtered.length === 0 && (
           <div className="py-10 text-center text-gray-400">No tickets found</div>
         )}
-        {filtered.map(ticket => (
+        {paged.map(ticket => (
           <div key={ticket.ticketId} className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -173,6 +212,7 @@ export default function TicketTable({ initialTickets, userRole = 'admin' }: { in
             )}
           </div>
         ))}
+        <Pagination />
       </div>
 
       {/* Desktop table (hidden on mobile) */}
@@ -204,7 +244,7 @@ export default function TicketTable({ initialTickets, userRole = 'admin' }: { in
                 <td colSpan={8} className="px-4 py-10 text-center text-gray-400">No tickets found</td>
               </tr>
             )}
-            {filtered.map(ticket => (
+            {paged.map(ticket => (
               <tr key={ticket.ticketId} className="hover:bg-gray-50 transition-colors">
                 <td className="px-4 py-3">
                   <div className="font-mono text-xs text-gray-500">{ticket.ticketId}</div>
@@ -283,6 +323,9 @@ export default function TicketTable({ initialTickets, userRole = 'admin' }: { in
             ))}
           </tbody>
         </table>
+        <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50">
+          <Pagination />
+        </div>
       </div>
     </div>
   )
