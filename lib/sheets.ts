@@ -485,3 +485,85 @@ export async function createUser(name: string, email: string, passwordHash: stri
   })
   return id
 }
+
+async function findUserRow(sheets: ReturnType<typeof google.sheets>, id: string) {
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${USERS_SHEET}!A2:E`,
+  })
+  const rows = res.data.values ?? []
+  const index = rows.findIndex(r => r[0] === id)
+  return { rows, index, sheetRow: index + 2 }
+}
+
+export async function updateUser(
+  id: string,
+  updates: { name?: string; email?: string; role?: UserRole; passwordHash?: string },
+): Promise<{ before: AppUser; after: AppUser } | null> {
+  const auth = getAuth()
+  const sheets = google.sheets({ version: 'v4', auth })
+  const { rows, index, sheetRow } = await findUserRow(sheets, id)
+  if (index === -1) return null
+
+  const row = rows[index]
+  const before: AppUser = { id, name: row[1] ?? '', email: row[2] ?? '', role: row[4] as UserRole }
+  const next = [
+    id,
+    updates.name ?? row[1] ?? '',
+    updates.email ?? row[2] ?? '',
+    updates.passwordHash ?? row[3] ?? '',
+    updates.role ?? row[4] ?? '',
+  ]
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `${USERS_SHEET}!A${sheetRow}:E${sheetRow}`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [next] },
+  })
+  return { before, after: { id, name: next[1], email: next[2], role: next[4] as UserRole } }
+}
+
+export async function deleteUser(id: string): Promise<boolean> {
+  const auth = getAuth()
+  const sheets = google.sheets({ version: 'v4', auth })
+  const { index, sheetRow } = await findUserRow(sheets, id)
+  if (index === -1) return false
+
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID })
+  const sheetId = meta.data.sheets?.find(s => s.properties?.title === USERS_SHEET)?.properties?.sheetId
+  if (sheetId === undefined || sheetId === null) return false
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: SHEET_ID,
+    requestBody: {
+      requests: [{
+        deleteDimension: {
+          range: { sheetId, dimension: 'ROWS', startIndex: sheetRow - 1, endIndex: sheetRow },
+        },
+      }],
+    },
+  })
+  return true
+}
+
+// Store users see tickets by exact name match on store_assigned_to (column P),
+// so a rename must carry their existing tickets over or they'd vanish from view.
+export async function renameStoreAssignee(oldName: string, newName: string): Promise<number> {
+  if (!oldName || oldName === newName) return 0
+  const auth = getAuth()
+  const sheets = google.sheets({ version: 'v4', auth })
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${SHEET_NAME}!P2:P`,
+  })
+  const data = (res.data.values ?? [])
+    .map((r, i) => ({ value: r[0], sheetRow: i + 2 }))
+    .filter(c => c.value === oldName)
+    .map(c => ({ range: `${SHEET_NAME}!P${c.sheetRow}`, values: [[newName]] }))
+  if (data.length === 0) return 0
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: SHEET_ID,
+    requestBody: { valueInputOption: 'RAW', data },
+  })
+  return data.length
+}
