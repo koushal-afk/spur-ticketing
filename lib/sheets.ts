@@ -304,8 +304,9 @@ export async function archiveTickets(cutoff: Date): Promise<{ archived: number; 
   const keepRows: string[][] = []
   const archiveRows: string[][] = []
   for (const row of rows) {
-    const ms = fromIST(row[11]) // lastActiveAt
-    ;(ms < cutoffMs ? archiveRows : keepRows).push(row)
+    // Fall back to createdAt; a row with no readable date is kept, never archived.
+    const ms = fromIST(row[11]) || fromIST(row[10])
+    ;(ms > 0 && ms < cutoffMs ? archiveRows : keepRows).push(row)
   }
 
   if (archiveRows.length === 0) {
