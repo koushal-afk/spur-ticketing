@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 // Manually-triggered: moves tickets with lastActiveAt older than ?days=N
-// (default 90) into the Archive sheet tab, regardless of status.
+// (default 45) into the Archive sheet tab, regardless of status.
 // Example: /api/archive?secret=...&days=90
 export async function GET(req: NextRequest) {
   const secret = req.headers.get('x-cron-secret') ?? req.nextUrl.searchParams.get('secret')
@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const days = Number(req.nextUrl.searchParams.get('days') ?? '90')
+    const days = Number(req.nextUrl.searchParams.get('days') ?? '45')
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
     const result = await archiveTickets(cutoff)
     return NextResponse.json({ ...result, cutoff: cutoff.toISOString() })
