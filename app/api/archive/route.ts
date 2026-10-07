@@ -9,7 +9,10 @@ export const maxDuration = 60
 // Example: /api/archive?secret=...&days=90
 export async function GET(req: NextRequest) {
   const secret = req.headers.get('x-cron-secret') ?? req.nextUrl.searchParams.get('secret')
-  if (secret !== process.env.POLL_SECRET) {
+  // Vercel Cron sends `Authorization: Bearer <CRON_SECRET>` when that env var is set.
+  const fromVercelCron = !!process.env.CRON_SECRET
+    && req.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`
+  if (secret !== process.env.POLL_SECRET && !fromVercelCron) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
