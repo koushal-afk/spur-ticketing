@@ -13,7 +13,7 @@ export async function PATCH(
     if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    const role = (session.user as unknown as { role?: UserRole }).role ?? 'employee'
+    const role = (session.user as unknown as { role?: UserRole }).role
     const name = session.user.name ?? ''
 
     const { id } = await params
@@ -41,8 +41,7 @@ export async function PATCH(
         allowed.storeComments = body.storeComments
       }
     } else {
-      // employee
-      if (body.employeeComment !== undefined) allowed.employeeComment = body.employeeComment
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     if (Object.keys(allowed).length === 0) {

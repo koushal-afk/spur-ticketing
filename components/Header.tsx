@@ -2,27 +2,24 @@
 
 import { signOut } from 'next-auth/react'
 import Link from 'next/link'
-import { MessageSquare, LogOut, Shield, Users, UserCircle, Store, Settings } from 'lucide-react'
+import { MessageSquare, LogOut, Shield, Users, Store, Settings } from 'lucide-react'
 import { UserRole } from '@/lib/types'
 
 const roleLabel: Record<UserRole, string> = {
   admin: 'Admin',
   executive: 'Executive',
-  employee: 'Employee',
   store: 'Store',
 }
 
 const roleIcon: Record<UserRole, React.ReactNode> = {
   admin: <Shield size={12} />,
   executive: <Users size={12} />,
-  employee: <UserCircle size={12} />,
   store: <Store size={12} />,
 }
 
 const roleColor: Record<UserRole, string> = {
   admin: 'bg-purple-100 text-purple-700',
   executive: 'bg-blue-100 text-blue-700',
-  employee: 'bg-gray-100 text-gray-700',
   store: 'bg-amber-100 text-amber-700',
 }
 

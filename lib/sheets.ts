@@ -392,7 +392,7 @@ export async function getUserByEmail(email: string): Promise<(AppUser & { passwo
     name: row[1] ?? '',
     email: row[2] ?? '',
     passwordHash: row[3] ?? '',
-    role: (row[4] as UserRole) ?? 'employee',
+    role: row[4] as UserRole,
   }
 }
 

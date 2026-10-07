@@ -34,7 +34,7 @@ export default function TicketDetail({
   const [finalSaved, setFinalSaved] = useState(false)
 
   const canEdit = userRole === 'admin' || userRole === 'executive'
-  const canClose = userRole === 'admin' || userRole === 'executive' || userRole === 'employee'
+  const canClose = canEdit
   const canEditStoreComment = canEdit || (userRole === 'store' && ticket.storeAssignedTo === userName)
 
   const update = async (fields: Partial<Ticket>) => {
@@ -286,18 +286,17 @@ export default function TicketDetail({
             </div>
           </div>
 
-          {/* Employee Notes — editable by employees, read-only for others */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h3 className="font-semibold text-gray-900 flex items-center gap-2 mb-3">
-              <FileText size={16} /> {userRole === 'employee' ? 'My Notes' : 'Employee Notes'}
+              <FileText size={16} /> Internal Notes
             </h3>
-            {userRole === 'employee' ? (
+            {canEdit ? (
               <div className="space-y-2">
                 <textarea
                   value={empComment}
                   onChange={e => setEmpComment(e.target.value)}
                   rows={4}
-                  placeholder="Add your notes or updates on this ticket..."
+                  placeholder="Notes for the CX team (not shown to the customer or store)"
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                 />
                 <div className="flex items-center gap-2">
@@ -314,7 +313,7 @@ export default function TicketDetail({
               </div>
             ) : (
               <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap">
-                {ticket.employeeComment || <span className="text-gray-400 italic">No notes from employee yet.</span>}
+                {ticket.employeeComment || <span className="text-gray-400 italic">No internal notes yet.</span>}
               </p>
             )}
           </div>

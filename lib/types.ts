@@ -1,4 +1,5 @@
-export type UserRole = 'admin' | 'executive' | 'employee' | 'store'
+export type UserRole = 'admin' | 'executive' | 'store'
+export const USER_ROLES: UserRole[] = ['admin', 'executive', 'store']
 
 export interface AppUser {
   id: string

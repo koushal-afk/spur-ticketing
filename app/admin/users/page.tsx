@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { ArrowLeft, UserPlus } from 'lucide-react'
 import { AppUser, UserRole } from '@/lib/types'
 
-const ROLES: UserRole[] = ['admin', 'executive', 'employee', 'store']
+const ROLES: UserRole[] = ['admin', 'executive', 'store']
 
 export default function ManageUsersPage() {
   const [users, setUsers] = useState<AppUser[]>([])

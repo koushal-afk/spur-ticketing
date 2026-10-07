@@ -11,14 +11,15 @@ export const dynamic = 'force-dynamic'
 
 export default async function HomePage() {
   const [tickets, session] = await Promise.all([getAllTickets(), getServerSession(authOptions)])
-  const role = (session?.user as unknown as { role?: UserRole })?.role ?? 'employee'
+  const role = (session?.user as unknown as { role?: UserRole })?.role ?? 'store'
   const userEmail = session?.user?.email ?? ''
 
-  const visibleTickets = role === 'employee'
-    ? tickets.filter(t => t.assignedTo === (session?.user?.name ?? userEmail))
+  // Anything other than a known role (e.g. a stale "employee" session) sees nothing.
+  const visibleTickets = role === 'admin' || role === 'executive'
+    ? tickets
     : role === 'store'
     ? tickets.filter(t => t.storeAssignedTo === (session?.user?.name ?? userEmail))
-    : tickets
+    : []
 
   const counts: Record<TicketStatus, number> = { open: 0, in_progress: 0, resolved: 0, closed: 0 }
   for (const t of visibleTickets) counts[t.status] = (counts[t.status] ?? 0) + 1
@@ -70,7 +71,7 @@ export default async function HomePage() {
 
         <div className="bg-white rounded-xl border border-gray-200 p-3 sm:p-6">
           <h2 className="text-base font-semibold text-gray-900 mb-4">
-            {role === 'employee' ? 'My Tickets' : role === 'store' ? 'My Assigned Tickets' : 'All Tickets'}
+            {role === 'store' ? 'My Assigned Tickets' : 'All Tickets'}
           </h2>
           <TicketTable initialTickets={visibleTickets} userRole={role} />
         </div>

@@ -2,7 +2,7 @@ import type { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
 import { getUserByEmail } from './sheets'
-import { UserRole } from './types'
+import { UserRole, USER_ROLES } from './types'
 
 export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
@@ -21,6 +21,8 @@ export const authOptions: NextAuthOptions = {
         if (!user) return null
         const valid = await bcrypt.compare(credentials.password, user.passwordHash)
         if (!valid) return null
+        // Accounts with a removed or unknown role (e.g. the old "employee") can't sign in.
+        if (!USER_ROLES.includes(user.role)) return null
         return { id: user.id, name: user.name, email: user.email, role: user.role }
       },
     }),
