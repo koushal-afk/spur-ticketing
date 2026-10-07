@@ -19,5 +19,6 @@ export default async function TicketPage({ params }: { params: Promise<{ id: str
   const userRole = (session?.user as unknown as { role?: UserRole })?.role ?? 'store'
   const userName = session?.user?.name ?? ''
   const storeUsers = users.filter(u => u.role === 'store')
-  return <TicketDetail ticket={ticket} userRole={userRole} userName={userName} storeUsers={storeUsers} />
+  const cxUsers = users.filter(u => u.role === 'admin' || u.role === 'executive')
+  return <TicketDetail ticket={ticket} userRole={userRole} userName={userName} storeUsers={storeUsers} cxUsers={cxUsers} />
 }

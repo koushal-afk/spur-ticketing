@@ -1,4 +1,4 @@
-import { getAllTickets } from '@/lib/sheets'
+import { getAllTickets, getAllUsers } from '@/lib/sheets'
 import TicketTable from '@/components/TicketTable'
 import Header from '@/components/Header'
 import { TicketStatus } from '@/lib/types'
@@ -10,7 +10,9 @@ import { UserRole } from '@/lib/types'
 export const dynamic = 'force-dynamic'
 
 export default async function HomePage() {
-  const [tickets, session] = await Promise.all([getAllTickets(), getServerSession(authOptions)])
+  const [tickets, session, users] = await Promise.all([getAllTickets(), getServerSession(authOptions), getAllUsers()])
+  const cxNames = users.filter(u => u.role === 'admin' || u.role === 'executive').map(u => u.name)
+  const storeNames = users.filter(u => u.role === 'store').map(u => u.name)
   const role = (session?.user as unknown as { role?: UserRole })?.role ?? 'store'
   const userEmail = session?.user?.email ?? ''
 
@@ -73,7 +75,7 @@ export default async function HomePage() {
           <h2 className="text-base font-semibold text-gray-900 mb-4">
             {role === 'store' ? 'My Assigned Tickets' : 'All Tickets'}
           </h2>
-          <TicketTable initialTickets={visibleTickets} userRole={role} />
+          <TicketTable initialTickets={visibleTickets} userRole={role} cxNames={cxNames} storeNames={storeNames} />
         </div>
       </main>
     </div>
