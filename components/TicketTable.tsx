@@ -1,21 +1,18 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
+import { usePathname, useRouter } from 'next/navigation'
 import { Ticket, TicketStatus, UserRole } from '@/lib/types'
-import { QUERY_TYPES } from '@/lib/queryTypes'
-import { STAGES, StageKey, isAssigned, stageInfo, stageOf } from '@/lib/workflow'
+import { STAGES, isAssigned, stageInfo } from '@/lib/workflow'
+import { TicketFilters } from '@/lib/ticketQuery'
 import { StatusBadge } from './StatusBadge'
-import { MessageSquare, Phone, Clock, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
-import { formatIST } from '@/lib/dateUtils'
-
-type SortKey = 'lastActiveAt' | 'createdAt' | 'contactName' | 'status'
-
-const PAGE_SIZE = 50
+import { MessageSquare, Phone, Clock, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { formatIST, istDateKey } from '@/lib/dateUtils'
 
 const filterClass =
-  'border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500'
+  'border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500'
 const cellSelectClass =
-  'w-full max-w-[150px] text-xs text-gray-800 border border-gray-200 rounded-md px-1.5 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500'
+  'w-full min-w-[120px] max-w-[160px] text-xs text-gray-800 border border-gray-200 rounded-md px-1.5 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500'
 
 const STATUS_OPTIONS: { value: TicketStatus; label: string }[] = [
   { value: 'open', label: 'Open' },
@@ -24,129 +21,133 @@ const STATUS_OPTIONS: { value: TicketStatus; label: string }[] = [
   { value: 'closed', label: 'Closed' },
 ]
 
+const DAY_MS = 24 * 60 * 60 * 1000
+type DatePreset = '' | 'today' | 'yesterday' | '7d' | '30d' | 'custom'
+
+function presetRange(p: DatePreset): { from: string; to: string } {
+  const today = istDateKey(Date.now())
+  if (p === 'today') return { from: today, to: today }
+  if (p === 'yesterday') { const y = istDateKey(Date.now() - DAY_MS); return { from: y, to: y } }
+  if (p === '7d') return { from: istDateKey(Date.now() - 6 * DAY_MS), to: today }
+  if (p === '30d') return { from: istDateKey(Date.now() - 29 * DAY_MS), to: today }
+  return { from: '', to: '' }
+}
+
+function presetOf(from: string, to: string): DatePreset {
+  if (!from && !to) return ''
+  for (const p of ['today', 'yesterday', '7d', '30d'] as DatePreset[]) {
+    const r = presetRange(p)
+    if (r.from === from && r.to === to) return p
+  }
+  return 'custom'
+}
+
 export default function TicketTable({
-  initialTickets,
-  userRole = 'admin',
-  cxNames = [],
-  storeNames = [],
+  rows: initialRows,
+  total,
+  page,
+  pageCount,
+  filters,
+  userRole,
+  cxOptions,
+  storeOptions,
+  typeOptions,
 }: {
-  initialTickets: Ticket[]
-  userRole?: UserRole
-  cxNames?: string[]
-  storeNames?: string[]
+  rows: Ticket[]
+  total: number
+  page: number
+  pageCount: number
+  filters: TicketFilters
+  userRole: UserRole
+  cxOptions: string[]
+  storeOptions: string[]
+  typeOptions: string[]
 }) {
   const canEdit = userRole === 'admin' || userRole === 'executive'
-  const [tickets, setTickets] = useState(initialTickets)
-  const [filterStatus, setFilterStatus] = useState<TicketStatus | 'all'>('all')
-  const [filterQueryType, setFilterQueryType] = useState<string>('all')
-  const [filterStage, setFilterStage] = useState<StageKey | 'all'>('all')
-  const [filterCx, setFilterCx] = useState<string>('all')
-  const [filterStore, setFilterStore] = useState<string>('all')
-  const [search, setSearch] = useState('')
-  const [sortKey, setSortKey] = useState<SortKey>('lastActiveAt')
-  const [sortAsc, setSortAsc] = useState(false)
-  const [page, setPage] = useState(1)
+  const router = useRouter()
+  const pathname = usePathname()
+  const [isPending, startTransition] = useTransition()
+  const [rows, setRows] = useState(initialRows)
+  const [search, setSearch] = useState(filters.q)
+  const [datePreset, setDatePreset] = useState<DatePreset>(presetOf(filters.from, filters.to))
   const [saveError, setSaveError] = useState('')
 
-  // Names already on tickets stay selectable even if that login was since removed.
-  const cxOptions = Array.from(new Set([...cxNames, ...tickets.map(t => t.assignedTo).filter(isAssigned)])).sort()
-  const storeOptions = Array.from(new Set([...storeNames, ...tickets.map(t => t.storeAssignedTo).filter(Boolean)])).sort()
+  useEffect(() => setRows(initialRows), [initialRows])
 
-  const toggleSort = (key: SortKey) => {
-    if (sortKey === key) setSortAsc(a => !a)
-    else { setSortKey(key); setSortAsc(false) }
+  const go = (updates: Partial<Record<keyof TicketFilters, string | number>>) => {
+    const next: Record<string, string> = {
+      q: filters.q, status: filters.status, stage: filters.stage, type: filters.type, cx: filters.cx,
+      store: filters.store, from: filters.from, to: filters.to, sort: filters.sort, dir: filters.dir,
+      page: String(filters.page),
+    }
+    for (const [k, v] of Object.entries(updates)) next[k] = String(v ?? '')
+    if (!('page' in updates)) next.page = '1'
+    const params = new URLSearchParams()
+    for (const [k, v] of Object.entries(next)) {
+      if (!v) continue
+      if ((k === 'page' && v === '1') || (k === 'sort' && v === 'lastActiveAt') || (k === 'dir' && v === 'desc')) continue
+      params.set(k, v)
+    }
+    const qs = params.toString()
+    startTransition(() => router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false }))
   }
 
-  const q = search.toLowerCase()
-  const filtered = tickets
-    .filter(t => filterStatus === 'all' || t.status === filterStatus)
-    .filter(t => filterQueryType === 'all' || (filterQueryType === 'none' ? !t.queryType : t.queryType === filterQueryType))
-    .filter(t => filterStage === 'all' || stageOf(t) === filterStage)
-    .filter(t => filterCx === 'all' || (filterCx === 'Unassigned' ? !isAssigned(t.assignedTo) : t.assignedTo === filterCx))
-    .filter(t => filterStore === 'all' || (filterStore === 'none' ? !t.storeAssignedTo : t.storeAssignedTo === filterStore))
-    .filter(t =>
-      !q ||
-      t.contactName.toLowerCase().includes(q) ||
-      t.contactPhone.includes(search) ||
-      t.ticketId.toLowerCase().includes(q)
-    )
-    .sort((a, b) => {
-      const va = a[sortKey] ?? ''
-      const vb = b[sortKey] ?? ''
-      return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va)
-    })
-
-  // Rendering every filtered row's DOM nodes at once is what made a large sheet slow.
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const currentPage = Math.min(page, totalPages)
-  const paged = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
-
+  // Debounce typing in the search box.
+  const firstSearch = useRef(true)
   useEffect(() => {
-    setPage(1)
-  }, [search, filterStatus, filterQueryType, filterStage, filterCx, filterStore, sortKey, sortAsc])
+    if (firstSearch.current) { firstSearch.current = false; return }
+    const t = setTimeout(() => { if (search.trim() !== filters.q) go({ q: search.trim() }) }, 350)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search])
+
+  const onPreset = (p: DatePreset) => {
+    setDatePreset(p)
+    if (p === 'custom') return
+    const r = presetRange(p)
+    go({ from: r.from, to: r.to })
+  }
+
+  const sortBy = (key: TicketFilters['sort']) => {
+    if (filters.sort === key) go({ dir: filters.dir === 'asc' ? 'desc' : 'asc' })
+    else go({ sort: key, dir: key === 'contactName' ? 'asc' : 'desc' })
+  }
 
   const patch = async (ticketId: string, fields: Partial<Ticket>) => {
     setSaveError('')
+    const before = rows
+    setRows(rs => rs.map(t => (t.ticketId === ticketId ? { ...t, ...fields } : t)))
     const res = await fetch(`/api/tickets/${ticketId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(fields),
     })
-    if (res.ok) {
-      setTickets(ts => ts.map(t => t.ticketId === ticketId ? { ...t, ...fields } : t))
-    } else {
+    if (!res.ok) {
+      setRows(before)
       const data = await res.json().catch(() => ({}))
-      setSaveError(`${ticketId}: ${data.error ?? 'couldn’t save the change'}`)
+      setSaveError(`${ticketId}: ${data.error ?? 'couldn’t save the change. Try again.'}`)
     }
   }
 
-  const SortIcon = ({ k }: { k: SortKey }) =>
-    sortKey === k
-      ? sortAsc ? <ChevronUp size={14} /> : <ChevronDown size={14} />
-      : <span className="w-[14px]" />
+  const hasFilters = !!(filters.q || filters.status || filters.stage || filters.type || filters.cx || filters.store || filters.from || filters.to)
 
-  const Pagination = () => (
-    totalPages > 1 ? (
-      <div className="flex items-center justify-between pt-1">
-        <span className="text-xs text-gray-500">Page {currentPage} of {totalPages}</span>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setPage(p => Math.max(1, p - 1))}
-            disabled={currentPage === 1}
-            className="flex items-center gap-1 text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
-          >
-            <ChevronLeft size={14} /> Prev
-          </button>
-          <button
-            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-            disabled={currentPage === totalPages}
-            className="flex items-center gap-1 text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
-          >
-            Next <ChevronRight size={14} />
-          </button>
-        </div>
-      </div>
-    ) : null
+  const SortHead = ({ k, label }: { k: TicketFilters['sort']; label: string }) => (
+    <th className="px-3 py-3 text-left font-semibold text-gray-600">
+      <button onClick={() => sortBy(k)} className="flex items-center gap-1 whitespace-nowrap hover:text-gray-900">
+        {label}
+        {filters.sort === k ? (filters.dir === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />) : <span className="w-[14px]" />}
+      </button>
+    </th>
   )
 
-  const StageChip = ({ t }: { t: Ticket }) => {
+  const stageChip = (t: Ticket) => {
     const s = stageInfo(t)
     return <span className={`inline-flex whitespace-nowrap px-2 py-0.5 rounded-full text-xs font-medium ${s.className}`}>{s.label}</span>
   }
 
-  const QueryTypeCell = ({ t }: { t: Ticket }) =>
+  const cxCell = (t: Ticket) =>
     canEdit ? (
-      <select value={t.queryType ?? ''} onChange={e => patch(t.ticketId, { queryType: e.target.value })} className={cellSelectClass}>
-        <option value="">Select type…</option>
-        {QUERY_TYPES.map(qt => <option key={qt} value={qt}>{qt}</option>)}
-      </select>
-    ) : (
-      <span className="text-xs text-gray-700">{t.queryType || <span className="text-gray-400">—</span>}</span>
-    )
-
-  const CxCell = ({ t }: { t: Ticket }) =>
-    canEdit ? (
-      <select value={isAssigned(t.assignedTo) ? t.assignedTo : 'Unassigned'} onChange={e => patch(t.ticketId, { assignedTo: e.target.value })} className={cellSelectClass}>
+      <select value={isAssigned(t.assignedTo) ? t.assignedTo : 'Unassigned'} onChange={e => patch(t.ticketId, { assignedTo: e.target.value })} className={cellSelectClass} aria-label="CX executive">
         <option value="Unassigned">Not taken</option>
         {cxOptions.map(n => <option key={n} value={n}>{n}</option>)}
       </select>
@@ -154,9 +155,19 @@ export default function TicketTable({
       <span className="text-xs text-gray-700">{isAssigned(t.assignedTo) ? t.assignedTo : <span className="text-gray-400">—</span>}</span>
     )
 
-  const StoreCell = ({ t }: { t: Ticket }) =>
+  const typeCell = (t: Ticket) =>
     canEdit ? (
-      <select value={t.storeAssignedTo ?? ''} onChange={e => patch(t.ticketId, { storeAssignedTo: e.target.value })} className={cellSelectClass}>
+      <select value={t.queryType ?? ''} onChange={e => patch(t.ticketId, { queryType: e.target.value })} className={cellSelectClass} aria-label="Query type">
+        <option value="">Select type…</option>
+        {typeOptions.map(qt => <option key={qt} value={qt}>{qt}</option>)}
+      </select>
+    ) : (
+      <span className="text-xs text-gray-700">{t.queryType || <span className="text-gray-400">—</span>}</span>
+    )
+
+  const storeCell = (t: Ticket) =>
+    canEdit ? (
+      <select value={t.storeAssignedTo ?? ''} onChange={e => patch(t.ticketId, { storeAssignedTo: e.target.value })} className={cellSelectClass} aria-label="Store executive">
         <option value="">Not assigned</option>
         {storeOptions.map(n => <option key={n} value={n}>{n}</option>)}
       </select>
@@ -164,9 +175,9 @@ export default function TicketTable({
       <span className="text-xs text-gray-700">{t.storeAssignedTo || <span className="text-gray-400">—</span>}</span>
     )
 
-  const StatusCell = ({ t }: { t: Ticket }) =>
+  const statusCell = (t: Ticket) =>
     canEdit ? (
-      <select value={t.status} onChange={e => patch(t.ticketId, { status: e.target.value as TicketStatus })} className={cellSelectClass}>
+      <select value={t.status} onChange={e => patch(t.ticketId, { status: e.target.value as TicketStatus })} className={cellSelectClass} aria-label="Status">
         {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
     ) : (
@@ -174,147 +185,192 @@ export default function TicketTable({
     )
 
   const issueText = (t: Ticket) => t.conversationSummary || t.lastMessage
+  const href = (t: Ticket) => `/tickets/${t.ticketId}`
+
+  const pagination = pageCount > 1 && (
+    <div className="flex items-center justify-between pt-1">
+      <span className="text-xs text-gray-500 tabular-nums">Page {page} of {pageCount}</span>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => go({ page: page - 1 })}
+          disabled={page <= 1 || isPending}
+          className="flex items-center gap-1 text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+        >
+          <ChevronLeft size={14} /> Prev
+        </button>
+        <button
+          onClick={() => go({ page: page + 1 })}
+          disabled={page >= pageCount || isPending}
+          className="flex items-center gap-1 text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+        >
+          Next <ChevronRight size={14} />
+        </button>
+      </div>
+    </div>
+  )
 
   return (
     <div className="space-y-4">
       {/* Filters */}
       <div className="flex flex-wrap gap-2 items-center">
         <input
-          type="text"
+          type="search"
           placeholder="Search name, phone, ticket ID…"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className={`${filterClass} w-full sm:w-60`}
+          className={`${filterClass} w-full sm:w-56`}
+          aria-label="Search"
         />
-        <select value={filterStage} onChange={e => setFilterStage(e.target.value as StageKey | 'all')} className={filterClass} aria-label="Stage">
-          <option value="all">All stages</option>
-          {STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+        <select value={datePreset} onChange={e => onPreset(e.target.value as DatePreset)} className={filterClass} aria-label="Date">
+          <option value="">Any date</option>
+          <option value="today">Today</option>
+          <option value="yesterday">Yesterday</option>
+          <option value="7d">Last 7 days</option>
+          <option value="30d">Last 30 days</option>
+          <option value="custom">Custom range…</option>
         </select>
-        <select value={filterQueryType} onChange={e => setFilterQueryType(e.target.value)} className={filterClass} aria-label="Query type">
-          <option value="all">All query types</option>
+        {datePreset === 'custom' && (
+          <span className="flex items-center gap-1">
+            <input type="date" value={filters.from} max={filters.to || undefined} onChange={e => go({ from: e.target.value })} className={filterClass} aria-label="From date" />
+            <span className="text-gray-400 text-sm">to</span>
+            <input type="date" value={filters.to} min={filters.from || undefined} onChange={e => go({ to: e.target.value })} className={filterClass} aria-label="To date" />
+          </span>
+        )}
+        {canEdit && (
+          <select value={filters.cx} onChange={e => go({ cx: e.target.value })} className={filterClass} aria-label="CX executive">
+            <option value="">All CX executives</option>
+            <option value="Unassigned">Not taken</option>
+            {cxOptions.map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+        )}
+        <select value={filters.type} onChange={e => go({ type: e.target.value })} className={filterClass} aria-label="Query type">
+          <option value="">All query types</option>
           <option value="none">No type set</option>
-          {QUERY_TYPES.map(qt => <option key={qt} value={qt}>{qt}</option>)}
-        </select>
-        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value as TicketStatus | 'all')} className={filterClass} aria-label="Status">
-          <option value="all">All statuses</option>
-          {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          {typeOptions.map(qt => <option key={qt} value={qt}>{qt}</option>)}
         </select>
         {canEdit && (
-          <>
-            <select value={filterCx} onChange={e => setFilterCx(e.target.value)} className={filterClass} aria-label="CX executive">
-              <option value="all">All CX executives</option>
-              <option value="Unassigned">Not taken</option>
-              {cxOptions.map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-            <select value={filterStore} onChange={e => setFilterStore(e.target.value)} className={filterClass} aria-label="Store executive">
-              <option value="all">All store executives</option>
-              <option value="none">No store assigned</option>
-              {storeOptions.map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </>
+          <select value={filters.store} onChange={e => go({ store: e.target.value })} className={filterClass} aria-label="Store executive">
+            <option value="">All store executives</option>
+            <option value="none">No store assigned</option>
+            {storeOptions.map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
         )}
-        <span className="text-sm text-gray-500 ml-auto tabular-nums">{filtered.length} tickets</span>
+        <select value={filters.status} onChange={e => go({ status: e.target.value })} className={filterClass} aria-label="Status">
+          <option value="">All statuses</option>
+          {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        <select value={filters.stage} onChange={e => go({ stage: e.target.value })} className={filterClass} aria-label="Stage">
+          <option value="">All stages</option>
+          {STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+        </select>
+        {hasFilters && (
+          <button
+            onClick={() => { setSearch(''); setDatePreset(''); startTransition(() => router.replace(pathname, { scroll: false })) }}
+            className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 px-2 py-2"
+          >
+            <X size={14} /> Clear filters
+          </button>
+        )}
+        <span className="text-sm text-gray-500 ml-auto tabular-nums">
+          {isPending ? 'Loading…' : `${total.toLocaleString('en-IN')} tickets`}
+        </span>
       </div>
 
       {saveError && <p className="text-sm text-red-600">{saveError}</p>}
 
-      {/* Mobile cards */}
-      <div className="sm:hidden space-y-3">
-        {filtered.length === 0 && <div className="py-10 text-center text-gray-400">No tickets found</div>}
-        {paged.map(t => (
-          <div key={t.ticketId} className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="font-medium text-gray-900 text-sm truncate">{t.contactName}</div>
-                <div className="text-gray-400 text-xs">{t.contactPhone.replace(/^91/, '+91 ')} · <span className="font-mono">{t.ticketId}</span></div>
+      <div className={isPending ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
+        {/* Mobile cards */}
+        <div className="sm:hidden space-y-3">
+          {rows.length === 0 && <div className="py-10 text-center text-gray-400">No tickets match these filters</div>}
+          {rows.map(t => (
+            <div key={t.ticketId} className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <Link href={href(t)} className="min-w-0 group">
+                  <div className="font-medium text-gray-900 text-sm truncate group-hover:text-blue-700 group-hover:underline">{t.contactName}</div>
+                  <div className="text-gray-400 text-xs">{t.contactPhone.replace(/^91/, '+91 ')} · <span className="font-mono">{t.ticketId}</span></div>
+                </Link>
+                {stageChip(t)}
               </div>
-              <Link
-                href={`/tickets/${t.ticketId}`}
-                className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-medium shrink-0 border border-blue-200 rounded-lg px-2 py-1"
-              >
-                <MessageSquare size={12} /> View
-              </Link>
-            </div>
-            <div className="text-gray-600 text-sm line-clamp-2">{issueText(t)}</div>
-            <div className="flex flex-wrap gap-2 items-center">
-              {StageChip({ t })}
-              {t.queryType && <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700">{t.queryType}</span>}
-              <span className="flex items-center gap-1 text-xs text-gray-400 ml-auto">
-                <Clock size={11} />
-                {formatIST(t.lastActiveAt, { dateStyle: 'short', timeStyle: 'short' })}
-              </span>
-            </div>
-            {canEdit && (
-              <div className="grid grid-cols-2 gap-2">
-                <label className="text-[11px] text-gray-500 space-y-1">Query type{QueryTypeCell({ t })}</label>
-                <label className="text-[11px] text-gray-500 space-y-1">Status{StatusCell({ t })}</label>
-                <label className="text-[11px] text-gray-500 space-y-1">CX executive{CxCell({ t })}</label>
-                <label className="text-[11px] text-gray-500 space-y-1">Store executive{StoreCell({ t })}</label>
+              <div className="text-gray-600 text-sm line-clamp-2">{issueText(t)}</div>
+              {canEdit ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-[11px] text-gray-500 space-y-1">CX executive{cxCell(t)}</label>
+                  <label className="text-[11px] text-gray-500 space-y-1">Query type{typeCell(t)}</label>
+                  <label className="text-[11px] text-gray-500 space-y-1">Store executive{storeCell(t)}</label>
+                  <label className="text-[11px] text-gray-500 space-y-1">Status{statusCell(t)}</label>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2 items-center">
+                  <StatusBadge status={t.status} />
+                  {t.queryType && <span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700">{t.queryType}</span>}
+                </div>
+              )}
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1 text-xs text-gray-400">
+                  <Clock size={11} /> {formatIST(t.lastActiveAt, { dateStyle: 'medium', timeStyle: 'short' })}
+                </span>
+                <Link href={href(t)} className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-medium border border-blue-200 rounded-lg px-2 py-1">
+                  <MessageSquare size={12} /> View
+                </Link>
               </div>
-            )}
-          </div>
-        ))}
-        <Pagination />
-      </div>
+            </div>
+          ))}
+          {pagination}
+        </div>
 
-      {/* Desktop table */}
-      <div className="hidden sm:block overflow-x-auto rounded-xl border border-gray-200 shadow-sm">
-        <table className="min-w-full divide-y divide-gray-200 text-sm">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-3 py-3 text-left font-semibold text-gray-600 cursor-pointer select-none" onClick={() => toggleSort('contactName')}>
-                <span className="flex items-center gap-1">Customer <SortIcon k="contactName" /></span>
-              </th>
-              <th className="px-3 py-3 text-left font-semibold text-gray-600">Issue</th>
-              <th className="px-3 py-3 text-left font-semibold text-gray-600">Query Type</th>
-              <th className="px-3 py-3 text-left font-semibold text-gray-600">Stage</th>
-              <th className="px-3 py-3 text-left font-semibold text-gray-600">CX Executive</th>
-              <th className="px-3 py-3 text-left font-semibold text-gray-600">Store Executive</th>
-              <th className="px-3 py-3 text-left font-semibold text-gray-600 cursor-pointer select-none" onClick={() => toggleSort('status')}>
-                <span className="flex items-center gap-1">Status <SortIcon k="status" /></span>
-              </th>
-              <th className="px-3 py-3 text-left font-semibold text-gray-600 cursor-pointer select-none" onClick={() => toggleSort('lastActiveAt')}>
-                <span className="flex items-center gap-1 whitespace-nowrap">Last Active <SortIcon k="lastActiveAt" /></span>
-              </th>
-              <th className="px-3 py-3"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 bg-white">
-            {filtered.length === 0 && (
-              <tr><td colSpan={9} className="px-4 py-10 text-center text-gray-400">No tickets found</td></tr>
-            )}
-            {paged.map(t => (
-              <tr key={t.ticketId} className="hover:bg-gray-50 transition-colors align-top">
-                <td className="px-3 py-3">
-                  <div className="font-medium text-gray-900 whitespace-nowrap">{t.contactName}</div>
-                  <div className="flex items-center gap-1 text-gray-500 text-xs whitespace-nowrap">
-                    <Phone size={10} />
-                    {t.contactPhone.replace(/^91/, '+91 ')}
-                  </div>
-                  <div className="font-mono text-[11px] text-gray-400 mt-0.5">{t.ticketId}</div>
-                </td>
-                <td className="px-3 py-3 min-w-[220px] max-w-xs">
-                  <div className="text-gray-700 text-xs leading-relaxed line-clamp-2" title={issueText(t)}>{issueText(t)}</div>
-                </td>
-                <td className="px-3 py-3">{QueryTypeCell({ t })}</td>
-                <td className="px-3 py-3">{StageChip({ t })}</td>
-                <td className="px-3 py-3">{CxCell({ t })}</td>
-                <td className="px-3 py-3">{StoreCell({ t })}</td>
-                <td className="px-3 py-3">{StatusCell({ t })}</td>
-                <td className="px-3 py-3 text-xs text-gray-500 whitespace-nowrap">
-                  {formatIST(t.lastActiveAt, { dateStyle: 'short', timeStyle: 'short' })}
-                </td>
-                <td className="px-3 py-3">
-                  <Link href={`/tickets/${t.ticketId}`} className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-medium">
-                    <MessageSquare size={14} /> View
-                  </Link>
-                </td>
+        {/* Desktop table */}
+        <div className="hidden sm:block overflow-x-auto rounded-xl border border-gray-200 shadow-sm">
+          <table className="min-w-full divide-y divide-gray-200 text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <SortHead k="contactName" label="Customer" />
+                <th className="px-3 py-3 text-left font-semibold text-gray-600">Issue</th>
+                <th className="px-3 py-3 text-left font-semibold text-gray-600 whitespace-nowrap">CX Executive</th>
+                <th className="px-3 py-3 text-left font-semibold text-gray-600 whitespace-nowrap">Query Type</th>
+                <th className="px-3 py-3 text-left font-semibold text-gray-600 whitespace-nowrap">Store Executive</th>
+                <SortHead k="status" label="Status" />
+                <SortHead k="lastActiveAt" label="Last Active (IST)" />
+                <th className="px-3 py-3 text-left font-semibold text-gray-600">Stage</th>
+                <th className="px-3 py-3"><span className="sr-only">Open</span></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50">
-          <Pagination />
+            </thead>
+            <tbody className="divide-y divide-gray-100 bg-white">
+              {rows.length === 0 && (
+                <tr><td colSpan={9} className="px-4 py-10 text-center text-gray-400">No tickets match these filters</td></tr>
+              )}
+              {rows.map(t => (
+                <tr key={t.ticketId} className="hover:bg-gray-50 transition-colors align-top">
+                  <td className="px-3 py-3">
+                    <Link href={href(t)} className="group block">
+                      <div className="font-medium text-gray-900 whitespace-nowrap group-hover:text-blue-700 group-hover:underline">{t.contactName}</div>
+                      <div className="flex items-center gap-1 text-gray-500 text-xs whitespace-nowrap group-hover:text-blue-600">
+                        <Phone size={10} />
+                        {t.contactPhone.replace(/^91/, '+91 ')}
+                      </div>
+                    </Link>
+                    <div className="font-mono text-[11px] text-gray-400 mt-0.5">{t.ticketId}</div>
+                  </td>
+                  <td className="px-3 py-3 min-w-[220px] max-w-xs">
+                    <div className="text-gray-700 text-xs leading-relaxed line-clamp-2" title={issueText(t)}>{issueText(t)}</div>
+                  </td>
+                  <td className="px-3 py-3">{cxCell(t)}</td>
+                  <td className="px-3 py-3">{typeCell(t)}</td>
+                  <td className="px-3 py-3">{storeCell(t)}</td>
+                  <td className="px-3 py-3">{statusCell(t)}</td>
+                  <td className="px-3 py-3 text-xs text-gray-500 whitespace-nowrap tabular-nums">
+                    {formatIST(t.lastActiveAt, { dateStyle: 'medium', timeStyle: 'short' })}
+                  </td>
+                  <td className="px-3 py-3">{stageChip(t)}</td>
+                  <td className="px-3 py-3">
+                    <Link href={href(t)} className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-medium">
+                      <MessageSquare size={14} /> View
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {pageCount > 1 && <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50">{pagination}</div>}
         </div>
       </div>
     </div>

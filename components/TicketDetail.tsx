@@ -1,13 +1,12 @@
 'use client'
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Ticket, TicketStatus, UserRole, AppUser } from '@/lib/types'
-import { QUERY_TYPES } from '@/lib/queryTypes'
 import { isAssigned, stageInfo } from '@/lib/workflow'
 import { StatusBadge } from './StatusBadge'
 import {
-  ArrowLeft, Phone, MessageSquare, User, Calendar, Clock, Save, CheckCircle, ListChecks, Sparkles, Lock, Check,
+  ArrowLeft, Phone, MessageSquare, User, Calendar, Clock, Save, ListChecks, Sparkles, Lock, Check, CircleCheck, AlertCircle,
 } from 'lucide-react'
-import Link from 'next/link'
 import { formatIST } from '@/lib/dateUtils'
 
 const selectClass =
@@ -21,16 +20,38 @@ export default function TicketDetail({
   userName,
   storeUsers,
   cxUsers,
+  queryTypes,
 }: {
   ticket: Ticket
   userRole: UserRole
   userName: string
   storeUsers: AppUser[]
   cxUsers: AppUser[]
+  queryTypes: string[]
 }) {
+  const router = useRouter()
   const [ticket, setTicket] = useState(initial)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null)
+  // Comment boxes with typed-but-unsaved text, so leaving the page can warn first.
+  const [dirty, setDirty] = useState<Record<string, boolean>>({})
+  const hasUnsaved = Object.values(dirty).some(Boolean)
+  const markDirty = useCallback((key: string, d: boolean) => setDirty(prev => (prev[key] === d ? prev : { ...prev, [key]: d })), [])
+
+  useEffect(() => {
+    if (!hasUnsaved) return
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault() }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [hasUnsaved])
+
+  const leave = () => {
+    if (hasUnsaved && !window.confirm('You have comments that aren’t saved yet. Leave without saving them?')) return
+    // Go back to the list as it was (with its filters) when we came from it.
+    if (typeof document !== 'undefined' && document.referrer.startsWith(window.location.origin)) router.back()
+    else router.push('/')
+  }
 
   const canEdit = userRole === 'admin' || userRole === 'executive'
   const canEditStoreComment = canEdit || (userRole === 'store' && ticket.storeAssignedTo === userName)
@@ -47,7 +68,7 @@ export default function TicketDetail({
       body: JSON.stringify(fields),
     })
     const data = await res.json().catch(() => ({}))
-    if (res.ok) setTicket(data.ticket)
+    if (res.ok) { setTicket(data.ticket); setLastSavedAt(Date.now()) }
     else setError(data.error ?? 'Couldn’t save. Check your connection and try again.')
     setSaving(false)
     return res.ok
@@ -59,30 +80,46 @@ export default function TicketDetail({
   // Include the current value even if that person no longer has a login, so the select doesn't blank it.
   const cxOptions = Array.from(new Set([...cxUsers.map(u => u.name), ...(taken ? [ticket.assignedTo] : [])]))
   const storeOptions = Array.from(new Set([...storeUsers.map(u => u.name), ...(ticket.storeAssignedTo ? [ticket.storeAssignedTo] : [])]))
+  const typeOptions = Array.from(new Set([...queryTypes, ...(ticket.queryType ? [ticket.queryType] : [])]))
   const stage = stageInfo(ticket)
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4">
-        <div className="max-w-5xl mx-auto flex flex-wrap items-center gap-2 sm:gap-4">
-          <Link href="/" className="flex items-center gap-1.5 text-gray-500 hover:text-gray-700 text-sm">
-            <ArrowLeft size={16} /> Back
-          </Link>
+      <header className="sticky top-0 z-10 bg-white border-b border-gray-200 px-4 py-3 sm:px-6">
+        <div className="max-w-5xl mx-auto flex flex-wrap items-center gap-2 sm:gap-3">
+          <button onClick={leave} className="flex items-center gap-1.5 text-gray-500 hover:text-gray-800 text-sm">
+            <ArrowLeft size={16} /> Tickets
+          </button>
           <div className="h-4 w-px bg-gray-200 hidden sm:block" />
           <span className="font-mono text-xs sm:text-sm text-gray-500">{ticket.ticketId}</span>
-          <StatusBadge status={ticket.status} />
+          {canEdit ? (
+            <select
+              value={ticket.status}
+              onChange={e => update({ status: e.target.value as TicketStatus })}
+              disabled={saving}
+              aria-label="Status"
+              className="border border-gray-200 rounded-lg px-2 py-1 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="open">Open</option>
+              <option value="in_progress">In Progress</option>
+              <option value="resolved">Resolved</option>
+              <option value="closed">Closed</option>
+            </select>
+          ) : (
+            <StatusBadge status={ticket.status} />
+          )}
           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${stage.className}`}>
             {stage.label}
           </span>
-          {canEdit && ticket.status !== 'closed' && (
+          <div className="ml-auto flex items-center gap-3">
+            <SaveState saving={saving} error={!!error} unsaved={hasUnsaved} lastSavedAt={lastSavedAt} />
             <button
-              onClick={() => update({ status: 'closed' })}
-              disabled={saving}
-              className="ml-auto flex items-center gap-1.5 bg-gray-800 hover:bg-gray-900 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+              onClick={leave}
+              className="bg-gray-900 hover:bg-gray-800 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
             >
-              <CheckCircle size={14} /> Close
+              Done
             </button>
-          )}
+          </div>
         </div>
       </header>
 
@@ -178,7 +215,7 @@ export default function TicketDetail({
                     className={selectClass}
                   >
                     <option value="">Select type…</option>
-                    {QUERY_TYPES.map(qt => <option key={qt} value={qt}>{qt}</option>)}
+                    {typeOptions.map(qt => <option key={qt} value={qt}>{qt}</option>)}
                   </select>
                 ) : (
                   <ReadOnly value={ticket.queryType} empty="Not set" />
@@ -203,6 +240,8 @@ export default function TicketDetail({
 
               <Step n={4} title="Customer service executive comments" done={!!ticket.employeeComment?.trim()} locked={cxLocked}>
                 <CommentField
+                  dirtyKey="cx"
+                  onDirty={markDirty}
                   key={`cx-${ticket.employeeComment}`}
                   initial={ticket.employeeComment ?? ''}
                   editable={canEdit && !cxLocked}
@@ -215,6 +254,8 @@ export default function TicketDetail({
 
               <Step n={5} title="Store executive comments" done={!!ticket.storeComments?.trim()} locked={cxLocked && !ticket.storeComments}>
                 <CommentField
+                  dirtyKey="store"
+                  onDirty={markDirty}
                   key={`store-${ticket.storeComments}`}
                   initial={ticket.storeComments ?? ''}
                   editable={canEditStoreComment && !cxLocked}
@@ -227,6 +268,8 @@ export default function TicketDetail({
 
               <Step n={6} title="Final resolution" hint="After checking back with the customer" done={!!ticket.finalResolutionComments?.trim()} locked={cxLocked} last>
                 <CommentField
+                  dirtyKey="final"
+                  onDirty={markDirty}
                   key={`final-${ticket.finalResolutionComments}`}
                   initial={ticket.finalResolutionComments ?? ''}
                   editable={canEdit && !cxLocked}
@@ -245,26 +288,6 @@ export default function TicketDetail({
 
         {/* Right column */}
         <div className="space-y-4">
-          <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
-            <h3 className="font-semibold text-gray-900">Status</h3>
-            {canEdit ? (
-              <select
-                value={ticket.status}
-                onChange={e => update({ status: e.target.value as TicketStatus })}
-                disabled={saving}
-                className={selectClass}
-              >
-                <option value="open">Open</option>
-                <option value="in_progress">In Progress</option>
-                <option value="resolved">Resolved</option>
-                <option value="closed">Closed</option>
-              </select>
-            ) : (
-              <StatusBadge status={ticket.status} />
-            )}
-            {saving && <p className="text-xs text-blue-500">Saving…</p>}
-          </div>
-
           <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
             <h3 className="font-semibold text-gray-900">Timeline</h3>
             <div className="space-y-2 text-sm">
@@ -309,13 +332,17 @@ function Step({
 }
 
 function CommentField({
-  initial, editable, placeholder, empty, buttonLabel, onSave,
+  initial, editable, placeholder, empty, buttonLabel, onSave, dirtyKey, onDirty,
 }: {
-  initial: string; editable: boolean; placeholder: string; empty: string; buttonLabel: string; onSave: (v: string) => Promise<boolean>
+  initial: string; editable: boolean; placeholder: string; empty: string; buttonLabel: string
+  onSave: (v: string) => Promise<boolean>; dirtyKey: string; onDirty: (key: string, dirty: boolean) => void
 }) {
   const [value, setValue] = useState(initial)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
+  const isDirty = editable && value !== initial
+  useEffect(() => { onDirty(dirtyKey, isDirty) }, [dirtyKey, isDirty, onDirty])
+  useEffect(() => () => onDirty(dirtyKey, false), [dirtyKey, onDirty])
 
   if (!editable) {
     return <ReadOnly value={initial} empty={empty} multiline />
@@ -377,4 +404,12 @@ function MessageBubble({ text, time, isFirst }: { text: string; time: string; is
       </div>
     </div>
   )
+}
+
+function SaveState({ saving, error, unsaved, lastSavedAt }: { saving: boolean; error: boolean; unsaved: boolean; lastSavedAt: number | null }) {
+  if (saving) return <span className="text-xs text-gray-500">Saving…</span>
+  if (error) return <span className="flex items-center gap-1 text-xs text-red-600"><AlertCircle size={13} /> Not saved</span>
+  if (unsaved) return <span className="flex items-center gap-1 text-xs text-amber-700"><AlertCircle size={13} /> Unsaved comments</span>
+  if (lastSavedAt) return <span className="flex items-center gap-1 text-xs text-green-700"><CircleCheck size={13} /> All changes saved</span>
+  return null
 }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { getTicketById, updateTicket } from '@/lib/sheets'
-import { TicketStatus, TicketPriority, UserRole } from '@/lib/types'
+import { TicketStatus, UserRole } from '@/lib/types'
 
 export async function PATCH(
   req: NextRequest,
@@ -23,7 +23,6 @@ export async function PATCH(
     if (role === 'admin' || role === 'executive') {
       if (body.assignedTo !== undefined) allowed.assignedTo = body.assignedTo
       if (body.status !== undefined) allowed.status = body.status as TicketStatus
-      if (body.priority !== undefined) allowed.priority = body.priority as TicketPriority
       if (body.conversationSummary !== undefined) allowed.conversationSummary = body.conversationSummary
       if (body.employeeComment !== undefined) allowed.employeeComment = body.employeeComment
       if (body.queryType !== undefined) allowed.queryType = body.queryType

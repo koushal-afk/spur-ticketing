@@ -9,13 +9,6 @@ export interface AppUser {
 }
 
 export type TicketStatus = 'open' | 'in_progress' | 'resolved' | 'closed'
-export type TicketPriority = 'low' | 'medium' | 'high'
-
-export interface TeamMember {
-  name: string
-  email: string
-  phone: string
-}
 
 export interface Ticket {
   ticketId: string
@@ -28,7 +21,6 @@ export interface Ticket {
   employeeComment: string
   assignedTo: string
   status: TicketStatus
-  priority: TicketPriority
   createdAt: string
   lastActiveAt: string
   updatedAt: string

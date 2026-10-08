@@ -269,7 +269,6 @@ export async function processConversations(conversations: Record<string, unknown
         employeeComment: '',
         assignedTo: 'Unassigned',
         status: 'open',
-        priority: 'medium',
         createdAt: s.createdAt ?? new Date().toISOString(),
         lastActiveAt: s.lastMessageAt ?? '',
         updatedAt: new Date().toISOString(),

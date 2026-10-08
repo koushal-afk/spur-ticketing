@@ -2,7 +2,7 @@
 
 import { signOut } from 'next-auth/react'
 import Link from 'next/link'
-import { MessageSquare, LogOut, Shield, Users, Store, Settings } from 'lucide-react'
+import { MessageSquare, LogOut, Shield, Users, Store, Settings, ListFilter } from 'lucide-react'
 import { UserRole } from '@/lib/types'
 
 const roleLabel: Record<UserRole, string> = {
@@ -49,6 +49,14 @@ export default function Header({ user }: { user: { name: string; email: string; 
               className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 sm:px-3 transition-colors"
             >
               <Settings size={14} /> <span className="hidden sm:inline">Users</span>
+            </Link>
+          )}
+          {user.role === 'admin' && (
+            <Link
+              href="/admin/options"
+              className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 sm:px-3 transition-colors"
+            >
+              <ListFilter size={14} /> <span className="hidden sm:inline">Dropdowns</span>
             </Link>
           )}
           <button

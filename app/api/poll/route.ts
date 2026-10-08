@@ -52,7 +52,6 @@ export async function POST(req: NextRequest) {
         employeeComment: '',
         assignedTo: 'Unassigned',
         status: 'open',
-        priority: 'medium',
         createdAt: conv.createdAt,
         lastActiveAt: conv.lastMessageAt,
         updatedAt: new Date().toISOString(),
