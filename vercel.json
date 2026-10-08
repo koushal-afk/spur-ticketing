@@ -2,8 +2,5 @@
   "framework": "nextjs",
   "buildCommand": "npm run build",
   "outputDirectory": ".next",
-  "installCommand": "npm install",
-  "crons": [
-    { "path": "/api/archive", "schedule": "30 21 * * *" }
-  ]
+  "installCommand": "npm install"
 }
