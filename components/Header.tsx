@@ -2,7 +2,7 @@
 
 import { signOut } from 'next-auth/react'
 import Link from 'next/link'
-import { MessageSquare, LogOut, Shield, Users, Store, Settings, ListFilter } from 'lucide-react'
+import { MessageSquare, LogOut, Shield, Users, Store, Settings, ListFilter, BarChart3 } from 'lucide-react'
 import { UserRole } from '@/lib/types'
 
 const roleLabel: Record<UserRole, string> = {
@@ -43,6 +43,14 @@ export default function Header({ user }: { user: { name: string; email: string; 
               {roleIcon[user.role]} <span className="hidden sm:inline">{roleLabel[user.role]}</span>
             </span>
           </div>
+          {(user.role === 'admin' || user.role === 'executive') && (
+            <Link
+              href="/reports"
+              className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 sm:px-3 transition-colors"
+            >
+              <BarChart3 size={14} /> <span className="hidden sm:inline">Report</span>
+            </Link>
+          )}
           {user.role === 'admin' && (
             <Link
               href="/admin/users"

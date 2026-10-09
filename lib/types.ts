@@ -28,6 +28,11 @@ export interface Ticket {
   storeAssignedTo?: string
   storeComments?: string
   finalResolutionComments?: string
+  // Newline-separated private photo paths in blob storage.
+  photos?: string
+  // When this ticket was opened by the app, and when it last moved to resolved/closed.
+  openedAt?: string
+  resolvedAt?: string
 }
 
 export interface SpurConversation {

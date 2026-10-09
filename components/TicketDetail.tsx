@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { Ticket, TicketStatus, UserRole, AppUser } from '@/lib/types'
 import { isAssigned, stageInfo } from '@/lib/workflow'
 import { StatusBadge } from './StatusBadge'
+import TicketPhotos from './TicketPhotos'
 import {
   ArrowLeft, Phone, MessageSquare, User, Calendar, Clock, Save, ListChecks, Sparkles, Lock, Check, CircleCheck, AlertCircle,
 } from 'lucide-react'
@@ -173,6 +174,13 @@ export default function TicketDetail({
               )}
             </div>
           </div>
+
+          <TicketPhotos
+            ticket={ticket}
+            canAdd={canEditStoreComment}
+            canRemove={canEdit}
+            onUpdated={t => { setTicket(t); setLastSavedAt(Date.now()) }}
+          />
 
           {/* Resolution Workflow */}
           <div className="bg-white rounded-xl border border-gray-200 p-5">

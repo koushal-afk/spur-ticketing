@@ -52,6 +52,9 @@ export const TICKET_COLUMNS: { field: TicketField; header: string; aliases?: str
   { field: 'employeeComment', header: 'cx_comments', aliases: ['employee_comment'] },
   { field: 'storeComments', header: 'store_comments' },
   { field: 'finalResolutionComments', header: 'final_resolution', aliases: ['final_resolution_comments'] },
+  { field: 'photos', header: 'photos' },
+  { field: 'openedAt', header: 'opened_at', date: true },
+  { field: 'resolvedAt', header: 'resolved_at', date: true },
 ]
 
 export const TICKET_HEADERS = TICKET_COLUMNS.map(c => c.header)
@@ -137,6 +140,9 @@ function rowToTicket(row: string[], layout: Layout): Ticket {
     storeAssignedTo: g('storeAssignedTo'),
     storeComments: g('storeComments'),
     finalResolutionComments: g('finalResolutionComments'),
+    photos: g('photos'),
+    openedAt: g('openedAt'),
+    resolvedAt: g('resolvedAt'),
   }
 }
 
@@ -257,6 +263,10 @@ export async function updateTicket(ticketId: string, updates: Partial<Ticket>) {
   const sheetRow = rowIndex + 2
   const now = new Date().toISOString()
   const changes: Partial<Ticket> = { ...updates, updatedAt: now }
+  const done = (st?: string) => st === 'resolved' || st === 'closed'
+  const before = cell(rows[rowIndex], layout, 'status')
+  if (updates.status && done(updates.status) && !done(before)) changes.resolvedAt = now
+  if (updates.status && !done(updates.status) && done(before)) changes.resolvedAt = ''
   const data = (Object.keys(changes) as TicketField[])
     .filter(f => f !== 'ticketId' && layout.index[f] !== undefined)
     .map(f => ({
@@ -270,7 +280,9 @@ export async function updateTicket(ticketId: string, updates: Partial<Ticket>) {
   invalidateList()
 
   const existing = rowToTicket(rows[rowIndex], layout)
-  return { ...existing, ...updates, updatedAt: toIST(now) } as Ticket
+  const result = { ...existing, ...updates, updatedAt: toIST(now) } as Ticket
+  if (changes.resolvedAt !== undefined) result.resolvedAt = changes.resolvedAt ? toIST(changes.resolvedAt) : ''
+  return result
 }
 
 export async function updateTicketLiveData(

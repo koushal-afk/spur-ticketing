@@ -53,6 +53,7 @@ export async function POST(req: NextRequest) {
         assignedTo: 'Unassigned',
         status: 'open',
         createdAt: conv.createdAt,
+        openedAt: new Date().toISOString(),
         lastActiveAt: conv.lastMessageAt,
         updatedAt: new Date().toISOString(),
       })

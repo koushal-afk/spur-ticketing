@@ -270,6 +270,7 @@ export async function processConversations(conversations: Record<string, unknown
         assignedTo: 'Unassigned',
         status: 'open',
         createdAt: s.createdAt ?? new Date().toISOString(),
+        openedAt: new Date().toISOString(),
         lastActiveAt: s.lastMessageAt ?? '',
         updatedAt: new Date().toISOString(),
       }
