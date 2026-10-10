@@ -9,4 +9,5 @@ export function photoSrc(pathname: string) {
   return `/api/photos/${pathname.split('/').map(encodeURIComponent).join('/')}`
 }
 
-export const photoStorageReady = () => !!process.env.BLOB_READ_WRITE_TOKEN
+// Newer Blob stores connect via Vercel's OIDC token plus BLOB_STORE_ID; older ones via a read-write token.
+export const photoStorageReady = () => !!(process.env.BLOB_STORE_ID || process.env.BLOB_READ_WRITE_TOKEN)

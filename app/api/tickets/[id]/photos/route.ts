@@ -43,11 +43,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (file.size > MAX_PHOTO_BYTES) return NextResponse.json({ error: 'That photo is too large (max 4 MB).' }, { status: 400 })
 
   const ext = file.type.split('/')[1].replace('jpeg', 'jpg')
-  const blob = await put(`tickets/${id}/photo.${ext}`, file, {
-    access: 'private',
-    addRandomSuffix: true,
-    contentType: file.type,
-  })
+  let blob
+  try {
+    blob = await put(`tickets/${id}/photo.${ext}`, file, {
+      access: 'private',
+      addRandomSuffix: true,
+      contentType: file.type,
+    })
+  } catch (e) {
+    console.error('[photos] upload failed:', e)
+    const msg = e instanceof Error ? e.message : String(e)
+    return NextResponse.json({ error: `Couldn’t store the photo: ${msg}` }, { status: 502 })
+  }
 
   // Re-read so a photo added by someone else in the meantime isn't dropped.
   const latest = parsePhotos((await getTicketById(id))?.photos)

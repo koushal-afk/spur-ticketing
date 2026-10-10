@@ -14,7 +14,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ pat
   const pathname = path.map(decodeURIComponent).join('/')
   if (!pathname.startsWith('tickets/')) return new NextResponse('Not found', { status: 404 })
 
-  const result = await get(pathname, { access: 'private' }).catch(() => null)
+  const result = await get(pathname, { access: 'private' }).catch(e => { console.error('[photos] read failed:', e); return null })
   if (!result || result.statusCode !== 200) return new NextResponse('Not found', { status: 404 })
   return new NextResponse(result.stream, {
     headers: {
